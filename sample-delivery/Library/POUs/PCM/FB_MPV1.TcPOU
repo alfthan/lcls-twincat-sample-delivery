@@ -2,7 +2,14 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_MPV1" Id="{ba3e2f33-c936-4cf9-8e17-0622679aedea}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MPV1
-(* Pressure Control Module 0-10v control and readback signal *)
+(* Pressure control module with 0-10V analog control and readback signals.
+   Drives both proportionair channels of the module:
+     channel 1 -> PropAir:01 (AI Ch1 readback / AO Ch3 command)
+     channel 2 -> PropAir:02 (AI Ch2 readback / AO Ch4 command)
+   History:
+     2026-11-26: channel 2 was never driven (PropAir1 was called twice); now
+                 handed to PropAir2 so stPropAir2 is scaled and its AO is set.
+*)
 VAR_INPUT
 END_VAR
 VAR_OUTPUT
@@ -23,7 +30,7 @@ END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[PropAir1(iq_stRegProp:=stPropAir1, iDEVICE_MAX_PRESSURE := 100);
-PropAir1(iq_stRegProp:=stPropAir1, iDEVICE_MAX_PRESSURE := 100);]]></ST>
+PropAir2(iq_stRegProp:=stPropAir2, iDEVICE_MAX_PRESSURE := 100);]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>
