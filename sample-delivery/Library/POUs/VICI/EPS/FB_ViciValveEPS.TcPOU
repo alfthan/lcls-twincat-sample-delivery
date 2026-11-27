@@ -31,10 +31,18 @@ VAR
     '}
     fbViciEPS : FB_VICI_EPS_LOGIC;
 
-    {attribute 'pytmc' := 'pv: OVRD_MODE'}
+    {attribute 'pytmc' := '
+        pv: OVRD_MODE
+        io: io
+        field: DESC Manual port EPS override
+     '}
     bEPS_Override : BOOL := FALSE;
 
-    {attribute 'pytmc' := 'pv: OVRD_COUNTDOWN'}
+    {attribute 'pytmc' := '
+        pv: OVRD_COUNTDOWN
+        io: i
+        field: DESC Override time remaining
+     '}
     tEPS_TimerCountDown : STRING := TIME_TO_STRING(T#0s);
 
     fbNporValve : FB_ViciValve;

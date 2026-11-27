@@ -3,9 +3,17 @@
   <DUT Name="E_VICI_PORT_EPS" Id="{19162ed9-f19d-40bd-9a8a-0b945315ca9a}">
     <Declaration><![CDATA[TYPE E_VICI_PORT_EPS :
 STRUCT
-    {attribute 'pytmc' := 'pv: stEPS'}
+    {attribute 'pytmc' := '
+        pv: stEPS
+        io: i
+        field: DESC EPS state of this port
+     '}
     stEPS : DUT_EPS;
-    {attribute 'pytmc' := 'pv: ePortStatus'}
+    {attribute 'pytmc' := '
+        pv: ePortStatus
+        io: i
+        field: DESC EPS lock status of this port
+     '}
     ePortStatus : E_VICI_EPS_PORT_STATUS;
 END_STRUCT
 END_TYPE

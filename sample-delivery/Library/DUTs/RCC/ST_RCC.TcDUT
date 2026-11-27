@@ -33,25 +33,57 @@ STRUCT
         autosave_pass0: VAL DESC
     '}
     T4 : REAL := 10;
-    {attribute 'pytmc' :=' pv: RUNCLEAN'}
+    {attribute 'pytmc' := '
+        pv: RUNCLEAN
+        io: io
+        field: ZNAM "NoClean"
+        field: ONAM "Clean"
+        field: DESC Run cleaning cycle mode
+     '}
     bRunClean : BOOL := TRUE;
 
-    {attribute 'pytmc' :=' pv: CLEAR_ERROR'}
+    {attribute 'pytmc' := '
+        pv: CLEAR_ERROR
+        io: io
+        field: DESC Clear latched RCC error
+     '}
     bClearError : BOOL := FALSE;
-    {attribute 'pytmc' :=' pv: ERROR'}
+    {attribute 'pytmc' := '
+        pv: ERROR
+        io: i
+        field: ZNAM "OK"
+        field: ONAM "ERROR"
+        field: DESC RCC error state
+     '}
     bError : BOOL := FALSE;
-    {attribute 'pytmc' :=' pv: STOP_CYCLE'}
+    {attribute 'pytmc' := '
+        pv: STOP_CYCLE
+        io: io
+        field: DESC Stop the RCC cycle
+     '}
     bStop : BOOL := FALSE;
 
-    {attribute 'pytmc' :=' pv: START_CYCLE'}
+    {attribute 'pytmc' := '
+        pv: START_CYCLE
+        io: io
+        field: DESC Start the RCC cycle
+     '}
     bStartCycle : BOOL  := FALSE;
 
-    {attribute 'pytmc' :='
+    {attribute 'pytmc' := '
         pv: ILK_Setpoint
+        io: io
         autosave_pass0: VAL DESC
+        field: DESC GCP-01 interlock pressure setpoint
      '}
     RCC_GCP_01_INTERLOCK_SETPOINT : REAL := 10;
-    {attribute 'pytmc' :=' pv: OverrideMode '}
+    {attribute 'pytmc' := '
+        pv: OverrideMode
+        io: io
+        field: ZNAM "Normal"
+        field: ONAM "Override"
+        field: DESC Manual override mode
+     '}
     xSystemOverrideMode_RCC : BOOL := FALSE;
 
     eCurrentState : INT := E_RCC_STATES.IDLE;
@@ -66,7 +98,11 @@ STRUCT
         io: o
     '}
     tTimerReadBack : STRING := '';
-    {attribute 'pytmc' :=' pv: sLogMessage '}
+    {attribute 'pytmc' := '
+        pv: sLogMessage
+        io: i
+        field: DESC RCC state machine log message
+     '}
     sLogMessage : T_MaxString := '';
 
     RCC_VRC_01_OPEN_OK : BOOL;
