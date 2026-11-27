@@ -39,7 +39,27 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[RCC_GCP_ILK_CONV := RCC_GCP_01_INTERLOCK_SETPOINT * 1E2; // Convert to Torr
+      <ST><![CDATA[
+// Validate the VAR_IN_OUT references before any of them is dereferenced. An
+// unbound valve or gauge reference returns undefined data, which would silently
+// corrupt the valve-open interlocks below, so fail safe and latch the error.
+IF NOT __ISVALIDREF(stRCC_VRC_01)
+    OR NOT __ISVALIDREF(stRCC_VRC_02)
+    OR NOT __ISVALIDREF(stRCC_VRC_03)
+    OR NOT __ISVALIDREF(stRCC_VRC_04)
+    OR NOT __ISVALIDREF(stRCC_GCP_01) THEN
+    RCC_VRC_01_OPEN_OK := FALSE; // Withdraw all valve-open permits
+    RCC_VRC_02_OPEN_OK := FALSE;
+    RCC_VRC_03_OPEN_OK := FALSE;
+    RCC_VRC_04_OPEN_OK := FALSE;
+    bRunning := FALSE;
+    eCurrentState := E_RCC_STATES.ERROR; // Latched until bClearError with valid references
+    bError := TRUE;
+    sLogMessage := 'INVALID VALVE/GAUGE REFERENCE';
+    RETURN;
+END_IF
+
+RCC_GCP_ILK_CONV := RCC_GCP_01_INTERLOCK_SETPOINT * 1E2; // Convert to Torr
 tTimerRBV := TIME_TO_STRING(tTimer1.ET);
 
 (* Valve can open only when CRIX-RCC-VRC-02 and 03 are closed*)
