@@ -10,8 +10,8 @@ xRegEnab	:	BOOL;
 (* Regulator motor *)
 stRegulatorMotor	:	AXIS_REF;
 wPercentageOpen		:	WORD;
-lrVelocity	:	LREAL	:=360 ;
-lrUpperLimPos	:	LREAL	:= 2887; //init to 2887, legacy hardcoded value
+lrVelocity	:	LREAL	:= GVL_Regulator.VELOCITY; //encoder counts/s, see GVL_Regulator.VELOCITY
+lrUpperLimPos	:	LREAL	:= GVL_Regulator.UPPER_LIMIT_POS; //position at fully open, in counts, see GVL_Regulator.UPPER_LIMIT_POS
 
 (* Deadband controls *)
 stDeadband	:	ST_RegDeadbandControls;
@@ -33,7 +33,7 @@ wOutPress 	:	WORD;
 
 (* Pressure setpoint *)
 wPressSP	:	WORD;
-wPressSpHi	:	WORD	:= 2000;
+wPressSpHi	:	WORD	:= GVL_Regulator.PRESS_SP_HI; //raw transducer counts, see GVL_Regulator.PRESS_SP_HI
 xPressSpWarn	:	BOOL;
 xSeeking	:	BOOL;
 

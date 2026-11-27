@@ -4,10 +4,10 @@
     <Declaration><![CDATA[FUNCTION_BLOCK FB_Regulator
 VAR_INPUT
     iI: INT;
-    lrVelocity	:	LREAL := 360;
+    lrVelocity	:	LREAL := GVL_Regulator.VELOCITY; //encoder counts/s, see GVL_Regulator.VELOCITY
 END_VAR
 VAR_OUTPUT
-q_asResult: ARRAY [1..20] OF STRING;
+q_asResult: ARRAY [1..GVL_Regulator.MAX_RESULTS] OF STRING; //message capacity from GVL_Regulator.MAX_RESULTS
 q_xError	:	BOOL;
 END_VAR
 VAR_IN_OUT
@@ -45,6 +45,7 @@ END_VAR
       <ST><![CDATA[(* Regulator Function Block *)
 (* Alex Wallace, 2014-10-16 *)
 (* Modified in 2.5.3 to remove all pressure SP  based code *)
+(* 2026-11-27, Scirix Agent: stroke limit, velocity and result-array cap now come from GVL_Regulator *)
 
 rtEnable(CLK:=iq_stRegulator.xRegEnab);
 
@@ -79,7 +80,7 @@ CASE iStep OF
     10:
     (* Start by initializing the motor axis *)
     mcPower.Enable := TRUE;
-    iq_stRegulator.lrUpperLimPos := 2887;
+    iq_stRegulator.lrUpperLimPos := GVL_Regulator.UPPER_LIMIT_POS;
     IF mcPower.Status THEN
         xInitComplete := TRUE;
         q_asResult[indexResult] := 'Motor init success';
@@ -119,7 +120,7 @@ CASE iStep OF
 END_CASE
 
 //Reset the debugging index
-IF indexResult > 20 THEN indexResult := 1; END_IF
+IF indexResult > GVL_Regulator.MAX_RESULTS THEN indexResult := 1; END_IF
 
 (* Regulator Percentage Open *)
 (* Calculate the regulator percentage open, based on 6.5 turns to fully open *)

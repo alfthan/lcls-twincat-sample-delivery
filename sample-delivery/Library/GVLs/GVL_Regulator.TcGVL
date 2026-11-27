@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="GVL_Regulator" Id="{3f3c76b2-5c1e-4a4f-9a2d-6d0d3a6f5c11}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+// A constant is the one place a literal may appear; exempt these declarations
+// from the static-analysis magic-number rule, as GeneralConstants does.
+{attribute 'analysis' := '-33'}
+(*
+    GVL_Regulator
+
+    Regulator (throttle valve) motion configuration: the hardware stroke limit
+    and the adjacent motor/pressure values that ST_Regulator defaults to and
+    FB_Regulator limits against. They are declared once here so the limit is
+    tuned in one place instead of being copied as a literal into each user.
+
+    Usage:
+        iq_stRegulator.lrUpperLimPos := GVL_Regulator.UPPER_LIMIT_POS;
+        q_asResult : ARRAY [1..GVL_Regulator.MAX_RESULTS] OF STRING;
+
+    Objectives:
+        - One named source for the regulator stroke limit so the DUT default and
+          the FB logic cannot diverge when the regulator hardware changes.
+        - Named values for the motor velocity, pressure setpoint and result array
+          capacity instead of literals embedded in the declarations.
+
+    History:
+        2026-11-27, Scirix Agent: created, replacing the literals embedded in
+          ST_Regulator and FB_Regulator (task #155, findings #903 and #502).
+*)
+VAR_GLOBAL CONSTANT
+    // Motor velocity commanded to the regulator axis, in encoder counts/s
+    VELOCITY : LREAL := 360.0;
+
+    // Axis position at fully open, in encoder counts (legacy field value 2887)
+    UPPER_LIMIT_POS : LREAL := 2887.0;
+
+    // High pressure setpoint for the regulator, in raw transducer counts
+    PRESS_SP_HI : WORD := 2000;
+
+    // Capacity of the FB_Regulator result message array, in messages
+    MAX_RESULTS : INT := 20;
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>
