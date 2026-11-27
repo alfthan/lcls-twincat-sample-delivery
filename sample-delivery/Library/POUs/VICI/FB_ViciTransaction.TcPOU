@@ -15,8 +15,8 @@ VAR_OUTPUT
     q_xError				: BOOL;
     q_xTimeout				: BOOL;
     q_sResult				: STRING;
-    q_sLastSentString		: ARRAY[1..40] OF STRING;			(* Last String Sent to Serial Device - for debugging *)
-    q_sLastReceivedString	: ARRAY[1..40] OF STRING;			(* Last String Received from Serial Device - for debugging *)
+    q_sLastSentString		: ARRAY[1..GVL_SAMPLE.g_iDebugHistoryDepth] OF STRING;			(* Last String Sent to Serial Device - for debugging *)
+    q_sLastReceivedString	: ARRAY[1..GVL_SAMPLE.g_iDebugHistoryDepth] OF STRING;			(* Last String Received from Serial Device - for debugging *)
 END_VAR
 VAR_IN_OUT
     iq_stSerialRXBuffer 	: ComBuffer;
@@ -35,7 +35,7 @@ VAR
     iStringRx: INT := 1;
 
     iStringTxRx: INT := 1;
-    sTxRxString: ARRAY[1..40] OF STRING;
+    sTxRxString: ARRAY[1..GVL_SAMPLE.g_iDebugHistoryDepth] OF STRING;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -72,7 +72,7 @@ CASE iStep OF
         sSendString := CONCAT(sSendString,'$R$L'); (* add <cr><lf> *) (*adding tail *)
         fbSendString( SendString:= sSendString, TXbuffer:= iq_stSerialTXBuffer );
         q_sLastSentString[iStringTx] := sSendString;
-IF iStringTx = 40 THEN iStringTx := 1; ELSE iStringTx := iStringTx +1; END_IF
+IF iStringTx = GVL_SAMPLE.g_iDebugHistoryDepth THEN iStringTx := 1; ELSE iStringTx := iStringTx +1; END_IF
         iStep := iStep + 10;
 
     20: (* Finish sending the String *)
@@ -111,7 +111,7 @@ IF iStringTx = 40 THEN iStringTx := 1; ELSE iStringTx := iStringTx +1; END_IF
             iStep := 9000;
         ELSIF fbReceiveString.StringReceived THEN
             q_sLastReceivedString[iStringRx] := sReceivedString;
-            IF iStringRx = 40 THEN iStringRx := 1; ELSE iStringRx := iStringRx +1; END_IF
+            IF iStringRx = GVL_SAMPLE.g_iDebugHistoryDepth THEN iStringRx := 1; ELSE iStringRx := iStringRx +1; END_IF
             IF LEN(sReceivedString) < 2 THEN
                 q_sResult := 'Reply too short.';
                 iStep := 9000;
@@ -135,7 +135,7 @@ IF iStringTx = 40 THEN iStringTx := 1; ELSE iStringTx := iStringTx +1; END_IF
         IF NOT i_CmdFlag THEN
             sTxRxString[iStringTxRx]:=CONCAT(CONCAT(q_sLastSentString[iStringTx], ' received '), q_sLastReceivedString[iStringRx]);
         END_IF
-        IF iStringTxRx = 40 THEN iStringTxRx := 1; ELSE iStringTxRx := iStringTxRx +1; END_IF
+        IF iStringTxRx = GVL_SAMPLE.g_iDebugHistoryDepth THEN iStringTxRx := 1; ELSE iStringTxRx := iStringTxRx +1; END_IF
 
     9000:
         q_xError := TRUE;;

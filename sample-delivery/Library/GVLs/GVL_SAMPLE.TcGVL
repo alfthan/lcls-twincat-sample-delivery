@@ -3,6 +3,20 @@
   <GVL Name="GVL_SAMPLE" Id="{b2864d8f-27b9-49d7-a36f-f3e6d25b7296}">
     <Declaration><![CDATA[VAR_GLOBAL
     g_xFirstPass: BOOL := TRUE;
+END_VAR
+
+(* Named constants shared across the library.  Declaring a limit here and
+   referencing it at every site keeps related literals from drifting apart. *)
+VAR_GLOBAL CONSTANT
+    (* Depth of the serial-transaction debug history ring buffers: each
+       transaction function block retains the last g_iDebugHistoryDepth
+       strings sent/received.  Used as the ARRAY bound *and* as the
+       wrap-around limit, so the two can never disagree. *)
+    g_iDebugHistoryDepth : INT := 40;
+
+    (* Modulus applied to the summed-byte checksum of a TC-36-25 TEC
+       command frame, reducing it to the single transmitted checksum byte. *)
+    g_wTecChecksumModulus : WORD := 256;
 END_VAR]]></Declaration>
   </GVL>
 </TcPlcObject>
