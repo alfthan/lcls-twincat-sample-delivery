@@ -21,7 +21,7 @@ STRUCT
         pv: OpenSW
         io: i
      '}
-    ixOPN AT %I*: BOOL;
+    ixOPN AT %I*: BOOL; //open switch readback: TRUE = valve reported open (raw field DI, not inverted)
 
     (* Soft variables *)
     {attribute 'pytmc' := '
@@ -34,7 +34,7 @@ STRUCT
         pv: Name
         io: i
     '}
-    sName: STRING;
+    sName: STRING; //valve label for operator displays; empty unless set by the deployment
 
 END_STRUCT
 END_TYPE
