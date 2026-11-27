@@ -1,13 +1,114 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <DUT Name="ST_ViciControl" Id="{3dbe2ab7-c9fe-4a0a-8fa6-39ab515d681c}">
-    <Declaration><![CDATA[TYPE ST_ViciControl :
+    <Declaration><![CDATA[(*
+    ST_ViciControl - control (command) interface of one multi-port Vici
+    selector valve reached over RS-232.
+
+    PURPOSE
+        Groups the values FB_ViciDriver needs in order to talk to a Vici valve:
+        which valve on the serial bus to address (iAddress), which port it
+        should route to (iReqPos) and how many ports the valve has
+        (iPortCount). It is the control half of the Vici driver interface; the
+        reply and position-readback half is ST_ViciStatus. Two members carried
+        over from the initial commit (sViciReply, xDirection) are not used by
+        any POU today and are documented as such below.
+
+    USAGE
+        Declared as a plain instance and handed to FB_ViciDriver.i_stControl:
+            FB_ViciValve.stViciVlvCtrl - filled each scan from the iAddress,
+                iReqPos and iNumOfPorts inputs of that block;
+            FB_SelectorM3.stSelector.astViciVlvCtrl[1..2] - one instance per
+                valve on the shared M3-selector serial bus, iAddress set to the
+                valve index (1 or 2) and iReqPos taken from iVici1ReqPos /app/namespaces/d6f73763-31bc-4bea-8f49-b5906058e129/
+                iVici2ReqPos after a LIMIT(1, ..., 12) clamp; iPortCount is
+                left at its default of 12 there.
+        The type carries no pytmc pragma, so it is not published to EPICS
+        directly: the operator-facing PVs are declared on the blocks that own
+        the structure (FB_12PortVici and FB_4PortViciValve expose iReqPos and
+        SampleNames).
+
+    OBJECTIVES
+        - One named structure instead of individual FB terminals, so the driver
+          signature and its callers stay stable when a field is added
+          (iPortCount was added this way, to support 4-port valves).
+        - Make the port numbering explicit: iReqPos is the logical 1-based port
+          number used throughout this library, and FB_ViciDriver converts it to
+          the vendor's numbering with iPortCount + 1 - iReqPos before it sends a
+          'GO<port>' command, converting the 'CP' readback back the same way.
+
+    PRECONDITIONS
+        - iReqPos must be within 1..iPortCount. FB_ViciDriver does clamp an
+          out-of-range request (i_stControl.iReqPos := LIMIT(1, ..., iPortCount))
+          before it commands a move, but that clamp runs only once a move is
+          already being sequenced, so a caller must bound-check the request it
+          writes into this structure.
+        - iPortCount must match the valve actually fitted: 12 on the 12-port
+          model, 4 on the 4-port model (which overrides the default through
+          FB_ViciValve.iNumOfPorts). It sets both the clamp range and the mirror
+          arithmetic iPortCount + 1 - n used to convert between the library's
+          port numbering and the vendor's, so a wrong value silently addresses
+          the wrong port.
+        - iAddress must be unique per valve on the serial bus: two instances
+          with the same address answer each other's commands and both
+          FB_ViciDriver reply checks fail.
+
+    UNITS
+        None - every member is a count, an index or a boolean. Port numbers are
+        dimensionless 1-based positions, sViciReply is a character string and
+        xDirection a boolean flag.
+
+    HISTORY
+        2023-05-19 J. Zamudio - type added with sViciReply, iReqPos, xDirection
+            and iAddress in the initial commit (746deac); no member documented.
+        2024-06-25 J. Zamudio - iPortCount added with the default 12 to
+            generalise FB_ViciDriver for 4-port valves while keeping 12-port
+            behaviour unchanged (8390105).
+        2025-05-29 J. Zamudio - moved to sample-delivery/Library/DUTs/Vici in
+            the project restructure (9b2fb2c); contents unchanged.
+        2026-11-27 Scirix Agent - added this header and one comment per member
+            (audit finding 452, task 362); no member, type or default changed.
+*)
+TYPE ST_ViciControl :
 STRUCT
+    // UNUSED - no POU reads or writes this member. The reply text of a serial
+    // transaction is kept in ST_ViciStatus.sViciReply, written by FB_ViciDriver
+    // from FB_ViciTransaction.q_sResponseData. Carried over from the initial
+    // commit; left in place so the structure layout and the FB_ViciDriver
+    // interface stay unchanged. STRING, no unit.
     sViciReply			: STRING;
+
+    // Requested port of the valve: the logical 1-based position the valve
+    // should route to, range 1..iPortCount, in this library's port numbering.
+    // FB_ViciDriver compares it with the last commanded position and, when they
+    // differ, converts it to the vendor's numbering with
+    // iPortCount + 1 - iReqPos and sends the resulting 'GO<port>' command.
+    // Written every scan by FB_ViciValve from its iReqPos input, and by
+    // FB_SelectorM3 for the selector valves. Port number, no unit.
     iReqPos				: INT;
+
+    // UNUSED - no POU reads or writes this member. FB_ViciDriver does not pick
+    // a travel direction: it always commands the vendor's mirrored position
+    // (iPortCount + 1 - iReqPos) and the valve reaches it by its own shortest
+    // path. Carried over from the initial commit; left in place so the
+    // structure layout stays unchanged. Boolean flag, no unit.
     xDirection			: BOOL;
+
+    // RS-232 address of this valve on the serial bus it shares with the other
+    // valves. Passed to FB_ViciTransaction as the command address and used to
+    // build the reply prefix FB_ViciDriver expects back, so the 'CP' readback
+    // of valve 1 must start with '1CP', that of valve 2 with '2CP', and so on.
+    // FB_ViciValve sets it from its iAddress input; FB_SelectorM3 sets it to
+    // the valve index (1 or 2) on the shared M3 bus. Bus address, no unit.
     iAddress			: INT;
-    iPortCount			: INT := 12; // Max Number of Ports Supported by Valve
+
+    // Number of ports fitted on the valve: 12 on the 12-port model (this
+    // default, kept for backward compatibility) and 4 on the 4-port model,
+    // which overrides it through FB_ViciValve.iNumOfPorts. Sets the valid
+    // iReqPos range 1..iPortCount and the mirror arithmetic
+    // iPortCount + 1 - n used to convert between this library's port numbering
+    // and the vendor's. Port count, no unit.
+    iPortCount			: INT := 12;
 END_STRUCT
 END_TYPE
 ]]></Declaration>
