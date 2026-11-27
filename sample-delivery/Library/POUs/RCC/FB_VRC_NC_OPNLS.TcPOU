@@ -29,7 +29,7 @@ VAR
     tonOvrd	:	TON;
     tonDelOK : TON;
     rtOK	:	R_TRIG;
-    tOvrd	:	TIME := T#10s;
+    tOvrd	:	TIME := T#10s; (*Override qualification time: only after this long is the override honoured*)
     (* Timeouts*)
     tTimeOutDuration: TIME:= T#30S;
     tOPNtimeout: TON;
@@ -61,13 +61,10 @@ ELSIF NOT iq_stValve.i_xOpnLS AND NOT iq_stValve.q_xOPN_DO THEN
     iq_stValve.eState:=CLOSED;
 END_IF
 
-(*evaluate Valve open external interlock*)
+(*evaluate Valve open external interlock. The ILK permit is read straight through and is never
+  suppressed or bypassed by the manual override - it stays in series with the open command below.*)
 iq_stValve.xOPN_OK := i_xExtILK_OK;
 iq_stValve.xEXT_OK := i_xExtILK_OK;
-IF NOT iq_stValve.xOPN_OK and NOT tonOvrd.Q THEN
-    iq_stValve.pv_xOPN_SW := FALSE;
-    iq_stValve.eVGC_State := ERR_ExtFault;
-END_IF
 
 IF (iq_stValve.q_xOPN_DO) AND (iq_stValve.xOPN_OK) THEN
     iq_stValve.eVGC_State := AtVacuum;
@@ -78,6 +75,9 @@ END_IF
 (* Goal: give ability to override, but do so in a way that people won't forget it.
 Solution: Override only after ten seconds of override, protect against blips,
 when the valve permission goes true for more than ten seconds consistently, remove override
+The override only substitutes for the vacuum / process permission. It is never a bypass of the
+external interlock: q_xOPN_DO keeps iq_stValve.xOPN_OK in series, so a valve whose interlock is
+not satisfied cannot be opened by an override.
 *)
 
 tonDelOK(IN:=iq_stValve.xOPN_OK, PT:=T#10S);
@@ -90,11 +90,21 @@ IF rtOK.Q AND iq_stValve.pv_xOvrdOpn THEN
 END_IF
 // Release the Force Open bit when the system override is false
 IF NOT(i_xOverrideMode) THEN  iq_stValve.pv_xOvrdOpn :=FALSE; END_IF
-//Override timer
-tonOvrd(IN:=iq_stValve.pv_xOvrdOpn, PT:=tOvrd);
+//Override qualification timer: the override request and the system override mode must both stay
+//true for tOvrd before the override is honoured.
+tonOvrd(IN:=iq_stValve.pv_xOvrdOpn AND i_xOverrideMode, PT:=tOvrd);
 
-(* Here's where the valve opens *)
-iq_stValve.q_xOPN_DO := (iq_stValve.pv_xOPN_SW AND iq_stValve.xOPN_OK) OR (tonOvrd.Q AND i_xOverrideMode);
+(* A missing external ILK permit always forces the valve closed and is always reported, whether the
+  override is qualified or not. The override may not mask a genuine interlock fault. *)
+IF NOT iq_stValve.xOPN_OK THEN
+    iq_stValve.pv_xOPN_SW := FALSE;
+    iq_stValve.pv_xOvrdOpn := FALSE;
+    iq_stValve.eVGC_State := ERR_ExtFault;
+END_IF
+
+(* Here's where the valve opens. The interlock term is in series with both the normal permission
+  (pv_xOPN_SW) and the qualified override (tonOvrd.Q AND i_xOverrideMode). *)
+iq_stValve.q_xOPN_DO := (iq_stValve.pv_xOPN_SW OR (tonOvrd.Q AND i_xOverrideMode)) AND iq_stValve.xOPN_OK;
 
 
 ///Check valve moving position timout

@@ -32,7 +32,10 @@ VAR
     fbViciEPS : FB_VICI_EPS_LOGIC;
 
     {attribute 'pytmc' := 'pv: OVRD_MODE'}
-    bEPS_Override : BOOL := FALSE;
+    bEPS_Override : BOOL := FALSE; // Manual override request. Honoured only after the qualification time, cleared automatically.
+
+    {attribute 'pytmc' := 'pv: OVRD_QUALIFIED'}
+    bEPS_OverrideQualified : BOOL; // TRUE once the override has been requested for its qualification time and is honoured.
 
     {attribute 'pytmc' := 'pv: OVRD_COUNTDOWN'}
     tEPS_TimerCountDown : STRING := TIME_TO_STRING(T#0s);
@@ -50,6 +53,7 @@ fbViciEPS(aPortEPS := aPortEPS,
     iNumPorts := iNumOfPorts,
     bExternalLockSignal => bExternalLock,
     bAllPortsLocked => bAllPortsLocked,
+    bOverrideQualified => bEPS_OverrideQualified,
     iNewPortPos => iNewPortPos,
     tEPS_TimerCountDown => tEPS_TimerCountDown);
 

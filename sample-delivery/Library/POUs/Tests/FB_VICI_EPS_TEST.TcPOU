@@ -15,13 +15,27 @@ VAR
     aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS;
     fbEPS : FB_EPS;
     bAllPortsLocked : BOOL;
-    iReqNewPort : INT := 1;
+    iReqNewPort : INT := 0;
     iNumPorts: INT := 4;
     bExternalSignal: BOOL;
     bOverride : BOOL := FALSE;
     fbTestTimer : TON;
     bTestInit : BOOL := TRUE;
+    iTestPhase : INT := 0;
 
+// TestLockedPortMovesWithOverrideExpectPortToMove FBs
+// Timers only advance when their FB instance lives at POU level, not inside a method.
+
+    fbViciEPSOvrd : FB_VICI_EPS_LOGIC;
+    aEPSOvrd : ARRAY[1..4] OF E_VICI_PORT_EPS;
+    fbEPSOvrd : FB_EPS;
+    bAllPortsLockedOvrd : BOOL;
+    bExternalSignalOvrd : BOOL;
+    iNewPortOvrd : INT := 0;
+    bOverrideOvrd : BOOL := FALSE;
+    iTestPhaseOvrd : INT := 0;
+    iPhaseCycleOvrd : INT := 0;
+    tWatchdogOvrd : TON;
 
 END_VAR
 ]]></Declaration>
@@ -72,25 +86,15 @@ fbViciEPS(aPortEPS := aEPS,
     bAllPortsLocked => bAllPortsLocked,
     iNewPortPos => iReqNewPort);
 
-
 AssertEquals_BOOL(
     Expected:= FALSE ,
     Actual:= bExternalSignal,
     Message:= 'bExternalSignal Should be FALSE'
 );
 
+// PORT 1 BECOMES LOCKED
 fbEPS(eps:=aEPS[1].stEPS);
 fbEPS.setBit(0, FALSE);
-
-fbEPS(eps:=aEPS[2].stEPS);
-fbEPS.setBit(0, TRUE);
-
-fbEPS(eps:=aEPS[3].stEPS);
-fbEPS.setBit(0, TRUE);
-
-fbEPS(eps:=aEPS[4].stEPS);
-fbEPS.setBit(0, TRUE);
-
 
 fbViciEPS(aPortEPS := aEPS,
     iReqPort := 1,
@@ -100,7 +104,6 @@ fbViciEPS(aPortEPS := aEPS,
     bExternalLockSignal => bExternalSignal,
     bAllPortsLocked => bAllPortsLocked,
     iNewPortPos => iReqNewPort);
-
 
 AssertEquals_BOOL(
     Expected:= TRUE ,
@@ -108,11 +111,14 @@ AssertEquals_BOOL(
     Message:= 'bExternalSignal Should be TRUE'
 );
 
-// CHECK OVERRIDE
+// AN OVERRIDE MUST NEITHER CLEAR THE LOCK NOR MOVE ONTO A LOCKED PORT
+fbEPS(eps:=aEPS[3].stEPS);
+fbEPS.setBit(0, FALSE);
+
 bOverride := TRUE;
 
 fbViciEPS(aPortEPS := aEPS,
-    iReqPort := 1,
+    iReqPort := 3,
     iPrevPort := iReqNewPort,
     bOverride := bOverride,
     iNumPorts := iNumPorts,
@@ -120,14 +126,26 @@ fbViciEPS(aPortEPS := aEPS,
     bAllPortsLocked => bAllPortsLocked,
     iNewPortPos => iReqNewPort);
 
-
 AssertEquals_BOOL(
-    Expected:= FALSE ,
+    Expected:= TRUE ,
     Actual:= bExternalSignal,
-    Message:= 'bExternalSignal Should be FALSE'
+    Message:= 'bExternalSignal was cleared by an unqualified override'
 );
 
-TEST_FINISHED();]]></ST>
+AssertEquals_INT(
+    Expected:= E_VICI_EPS_PORT_STATUS.LOCKED ,
+    Actual:= aEPS[3].ePortStatus,
+    Message:= 'PORT 3: lock was masked by an unqualified override'
+);
+
+AssertEquals_INT(
+    Expected:= 1 ,
+    Actual:= iReqNewPort,
+    Message:= 'moved to a locked port while the override was not qualified'
+);
+
+TEST_FINISHED();
+]]></ST>
       </Implementation>
     </Method>
     <Method Name="TestAllPortsLockedExpectbAllPortsLockedToBeTrue" Id="{d7534117-3ba8-42eb-8609-ee403d58a03b}">
@@ -202,7 +220,32 @@ AssertEquals_BOOL(
     Message:= 'ALL PORTS ARE NOT LOCKED'
 );
 
-TEST_FINISHED();]]></ST>
+// AN OVERRIDE MUST NOT MASK THE FACT THAT EVERY PORT IS LOCKED
+bOverride := TRUE;
+
+fbViciEPS(aPortEPS := aEPS,
+    iReqPort := 2,
+    iPrevPort := iReqNewPort,
+    bOverride := bOverride,
+    iNumPorts := iNumPorts,
+    bExternalLockSignal => bExternalSignal,
+    bAllPortsLocked => bAllPortsLocked,
+    iNewPortPos => iReqNewPort);
+
+AssertEquals_BOOL(
+    Expected:= TRUE ,
+    Actual:= bAllPortsLocked,
+    Message:= 'bAllPortsLocked was masked by the override'
+);
+
+AssertEquals_INT(
+    Expected:= 1 ,
+    Actual:= iReqNewPort,
+    Message:= 'moved while every port was locked'
+);
+
+TEST_FINISHED();
+]]></ST>
       </Implementation>
     </Method>
     <Method Name="TestEnableOverrideExpectOverrideToAutoRestAfterTimerExpires" Id="{70436f93-bf6a-4c8b-9cd1-51dbe5145d78}">
@@ -214,82 +257,128 @@ END_VAR
         <ST><![CDATA[TEST('TestEnableOverrideExpectOverrideToAutoRestAfterTimerExpires');
 
 IF bTestInit THEN
+    // PORT 1 IS LOCKED BY ITS EPS, THE OTHER PORTS ARE HEALTHY
     fbEPS(eps:=aEPS[1].stEPS);
     fbEPS.setBit(0, FALSE);
 
     fbEPS(eps:=aEPS[2].stEPS);
-    fbEPS.setBit(0, FALSE);
+    fbEPS.setBit(0, TRUE);
 
     fbEPS(eps:=aEPS[3].stEPS);
-    fbEPS.setBit(0, FALSE);
+    fbEPS.setBit(0, TRUE);
 
     fbEPS(eps:=aEPS[4].stEPS);
     fbEPS.setBit(0, TRUE);
 
-    fbViciEPS.M_SET_OVERRIDE_RESET_TIME(tNewTime:=T#100ms);
-    fbTestTimer.PT := T#500ms;
-    fbTestTimer.IN := TRUE;
+    fbViciEPS.M_SET_OVRD_QUAL_TIME(tNewTime := T#100ms);
+    fbViciEPS.M_SET_OVERRIDE_RESET_TIME(tNewTime := T#300ms);
 
-    // Enable Override
+    // ENABLE OVERRIDE AND ASK FOR THE LOCKED PORT
     bOverride := TRUE;
+    iReqNewPort := 0;
 
-    // Move To Locked Port
-    iReqNewPort := 1;
-
-    fbViciEPS(aPortEPS := aEPS,
-    iReqPort := iReqNewPort,
-    iPrevPort := iReqNewPort,
-    bOverride := bOverride,
-    iNumPorts := iNumPorts,
-    bExternalLockSignal => bExternalSignal,
-    bAllPortsLocked => bAllPortsLocked,
-    iNewPortPos => iReqNewPort);
-
-    AssertEquals_INT(
-    Expected:= E_VICI_EPS_PORT_STATUS.ACTIVE ,
-    Actual:= aEPS[1].ePortStatus,
-    Message:= 'PORT 1: NOT ACTIVE'
-    );
-
+    iTestPhase := 1;
     bTestInit := FALSE;
-
 END_IF
 
-fbViciEPS(aPortEPS := aEPS,
-    iReqPort := iReqNewPort,
-    iPrevPort := iReqNewPort,
-    bOverride := bOverride,
-    iNumPorts := iNumPorts,
-    bExternalLockSignal => bExternalSignal,
-    bAllPortsLocked => bAllPortsLocked,
-    iNewPortPos => iReqNewPort);
-
-IF  NOT bOverride OR fbTestTimer.Q THEN
-
-    // Test if bOverride Reset.
-    AssertEquals_BOOL(
-    Expected:= FALSE ,
-    Actual:= bOverride,
-    Message:= 'bOverride was Not Reset');
-
-    // TRY Blocked Move after override reset.
-    iReqNewPort := 1;
+IF iTestPhase = 1 THEN
+    fbTestTimer(IN := TRUE, PT := T#5s); // WATCHDOG
 
     fbViciEPS(aPortEPS := aEPS,
-    iReqPort := iReqNewPort,
-    iPrevPort := iReqNewPort,
-    bOverride := bOverride,
-    iNumPorts := iNumPorts,
-    bExternalLockSignal => bExternalSignal,
-    bAllPortsLocked => bAllPortsLocked,
-    iNewPortPos => iReqNewPort);
+        iReqPort := 1,
+        iPrevPort := iReqNewPort,
+        bOverride := bOverride,
+        iNumPorts := iNumPorts,
+        bExternalLockSignal => bExternalSignal,
+        bAllPortsLocked => bAllPortsLocked,
+        iNewPortPos => iReqNewPort);
 
-    AssertEquals_INT(
-    Expected:= E_VICI_EPS_PORT_STATUS.LOCKED ,
-    Actual:= aEPS[1].ePortStatus,
-    Message:= 'PORT 1: IS ACTIVE'
-    );
+    // THE OVERRIDE IS HONOURED ONLY AFTER ITS QUALIFICATION TIME
+    IF fbViciEPS.bOverrideQualified THEN
+        AssertEquals_INT(Expected:= 1 ,
+            Actual:= iReqNewPort,
+            Message:= 'OVERRIDE WAS NOT HONOURED AFTER ITS QUALIFICATION TIME');
 
+        AssertEquals_INT(Expected:= E_VICI_EPS_PORT_STATUS.LOCKED ,
+            Actual:= aEPS[1].ePortStatus,
+            Message:= 'PORT 1: LOCK WAS MASKED BY THE OVERRIDE');
+
+        iTestPhase := 2;
+    END_IF
+END_IF
+
+IF iTestPhase = 2 THEN
+    fbTestTimer(IN := TRUE, PT := T#5s); // WATCHDOG
+
+    fbViciEPS(aPortEPS := aEPS,
+        iReqPort := 1,
+        iPrevPort := iReqNewPort,
+        bOverride := bOverride,
+        iNumPorts := iNumPorts,
+        bExternalLockSignal => bExternalSignal,
+        bAllPortsLocked => bAllPortsLocked,
+        iNewPortPos => iReqNewPort);
+
+    IF NOT bOverride THEN
+        // TEST IF bOverride RESET ITSELF
+        AssertEquals_BOOL(
+            Expected:= FALSE ,
+            Actual:= bOverride,
+            Message:= 'bOverride was Not Reset');
+
+        AssertEquals_BOOL(
+            Expected:= FALSE ,
+            Actual:= fbViciEPS.bOverrideQualified,
+            Message:= 'OVERRIDE STILL QUALIFIED AFTER IT WAS RESET');
+
+        // TRY BLOCKED MOVE AFTER OVERRIDE RESET - FIRST MOVE TO AN ALLOWED PORT
+        fbViciEPS(aPortEPS := aEPS,
+            iReqPort := 2,
+            iPrevPort := iReqNewPort,
+            bOverride := bOverride,
+            iNumPorts := iNumPorts,
+            bExternalLockSignal => bExternalSignal,
+            bAllPortsLocked => bAllPortsLocked,
+            iNewPortPos => iReqNewPort);
+
+        AssertEquals_INT(Expected:= 2 ,
+            Actual:= iReqNewPort,
+            Message:= 'DID NOT MOVE TO THE UNLOCKED PORT');
+
+        // THE LOCKED PORT IS DENIED AGAIN NOW THAT THE OVERRIDE HAS CLEARED ITSELF
+        fbViciEPS(aPortEPS := aEPS,
+            iReqPort := 1,
+            iPrevPort := iReqNewPort,
+            bOverride := bOverride,
+            iNumPorts := iNumPorts,
+            bExternalLockSignal => bExternalSignal,
+            bAllPortsLocked => bAllPortsLocked,
+            iNewPortPos => iReqNewPort);
+
+        AssertEquals_INT(Expected:= 2 ,
+            Actual:= iReqNewPort,
+            Message:= 'MOVED TO THE LOCKED PORT AFTER THE OVERRIDE WAS RESET');
+
+        AssertEquals_INT(Expected:= E_VICI_EPS_PORT_STATUS.LOCKED ,
+            Actual:= aEPS[1].ePortStatus,
+            Message:= 'PORT 1: LOCK NOT REPORTED');
+
+        fbTestTimer(IN := FALSE, PT := T#5s);
+        bTestInit := TRUE;
+        iTestPhase := 0;
+        TEST_FINISHED();
+    END_IF
+END_IF
+
+IF fbTestTimer.Q THEN
+    AssertEquals_BOOL(
+        Expected:= FALSE ,
+        Actual:= fbTestTimer.Q,
+        Message:= 'OVERRIDE AUTO RESET TEST TIMED OUT');
+
+    fbTestTimer(IN := FALSE, PT := T#5s);
+    bTestInit := TRUE;
+    iTestPhase := 0;
     TEST_FINISHED();
 END_IF
 ]]></ST>
@@ -385,66 +474,158 @@ TEST_FINISHED();]]></ST>
       <Declaration><![CDATA[METHOD TestLockedPortMovesWithOverrideExpectPortToMove :  REFERENCE TO FB_Test
 VAR_INPUT
 END_VAR
-VAR
-    fbViciEPS : FB_VICI_EPS_LOGIC;
-    aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS;
-
-    fbEPS : FB_EPS;
-    bAllPortsLocked : BOOL;
-    iReqNewPort : INT;
-    iNumPorts : INT := 4;
-    bExternalSignal: BOOL;
-    bOverride : BOOL := FALSE;
-
-    fbTestTimer : TON;
-    iCount : INT := 0;
-END_VAR]]></Declaration>
+]]></Declaration>
       <Implementation>
         <ST><![CDATA[TEST('TestLockedPortMovesWithOverrideExpectPortToMove');
-fbEPS(eps:=aEPS[1].stEPS);
-fbEPS.setBit(0, TRUE);
 
-fbEPS(eps:=aEPS[2].stEPS);
-fbEPS.setBit(0, TRUE);
+IF iTestPhaseOvrd = 0 THEN
+    // ALL PORTS HEALTHY: MOVE TO PORT 1
+    fbEPSOvrd(eps:=aEPSOvrd[1].stEPS);
+    fbEPSOvrd.setBit(0, TRUE);
 
-fbEPS(eps:=aEPS[3].stEPS);
-fbEPS.setBit(0, FALSE);
+    fbEPSOvrd(eps:=aEPSOvrd[2].stEPS);
+    fbEPSOvrd.setBit(0, TRUE);
 
-fbEPS(eps:=aEPS[4].stEPS);
-fbEPS.setBit(0, TRUE);
+    fbEPSOvrd(eps:=aEPSOvrd[3].stEPS);
+    fbEPSOvrd.setBit(0, TRUE);
 
-// REQUEST PORT 1
-fbViciEPS(aPortEPS := aEPS,
-    iReqPort := 1,
-    iPrevPort := iReqNewPort,
-    bOverride := bOverride,
-    iNumPorts := iNumPorts,
-    bExternalLockSignal => bExternalSignal,
-    bAllPortsLocked => bAllPortsLocked,
-    iNewPortPos => iReqNewPort);
+    fbEPSOvrd(eps:=aEPSOvrd[4].stEPS);
+    fbEPSOvrd.setBit(0, TRUE);
 
-AssertEquals_INT(Expected:= 1 ,
-    Actual:= iReqNewPort,
-    Message:= 'VICI EPS DID NOT MOVE TO ALLOWED PORT');
+    bOverrideOvrd := FALSE;
 
-// REQUEST PORT 3 w/ Override
+    fbViciEPSOvrd(aPortEPS := aEPSOvrd,
+        iReqPort := 1,
+        iPrevPort := iNewPortOvrd,
+        bOverride := bOverrideOvrd,
+        iNumPorts := iNumPorts,
+        bExternalLockSignal => bExternalSignalOvrd,
+        bAllPortsLocked => bAllPortsLockedOvrd,
+        iNewPortPos => iNewPortOvrd);
 
-bOverride := TRUE;
+    AssertEquals_INT(Expected:= 1 ,
+        Actual:= iNewPortOvrd,
+        Message:= 'VICI EPS DID NOT MOVE TO ALLOWED PORT');
 
-fbViciEPS(aPortEPS := aEPS,
-    iReqPort := 3,
-    iPrevPort := iReqNewPort,
-    bOverride := bOverride,
-    iNumPorts := iNumPorts,
-    bExternalLockSignal => bExternalSignal,
-    bAllPortsLocked => bAllPortsLocked,
-    iNewPortPos => iReqNewPort);
+    // PORT 1 AND PORT 3 BECOME LOCKED. THE LOCK OF THE ACTIVE PORT MUST BE REPORTED.
+    fbEPSOvrd(eps:=aEPSOvrd[1].stEPS);
+    fbEPSOvrd.setBit(0, FALSE);
 
-AssertEquals_INT(Expected:= 3 ,
-    Actual:= iReqNewPort,
-    Message:= 'VICI EPS OVERRIDE FAILED');
+    fbEPSOvrd(eps:=aEPSOvrd[3].stEPS);
+    fbEPSOvrd.setBit(0, FALSE);
 
-TEST_FINISHED();]]></ST>
+    fbViciEPSOvrd(aPortEPS := aEPSOvrd,
+        iReqPort := 1,
+        iPrevPort := iNewPortOvrd,
+        bOverride := bOverrideOvrd,
+        iNumPorts := iNumPorts,
+        bExternalLockSignal => bExternalSignalOvrd,
+        bAllPortsLocked => bAllPortsLockedOvrd,
+        iNewPortPos => iNewPortOvrd);
+
+    AssertEquals_BOOL(Expected:= TRUE ,
+        Actual:= bExternalSignalOvrd,
+        Message:= 'LOCKED ACTIVE PORT WAS NOT REPORTED');
+
+    // NOW ASK FOR THE LOCKED PORT 3 WITH AN OVERRIDE
+    fbViciEPSOvrd.M_SET_OVRD_QUAL_TIME(tNewTime := T#200ms);
+    fbViciEPSOvrd.M_SET_OVERRIDE_RESET_TIME(tNewTime := T#10s);
+    bOverrideOvrd := TRUE;
+    iTestPhaseOvrd := 1;
+    iPhaseCycleOvrd := 0;
+END_IF
+
+IF iTestPhaseOvrd = 1 THEN
+    tWatchdogOvrd(IN := TRUE, PT := T#5s);
+
+    fbViciEPSOvrd(aPortEPS := aEPSOvrd,
+        iReqPort := 3,
+        iPrevPort := iNewPortOvrd,
+        bOverride := bOverrideOvrd,
+        iNumPorts := iNumPorts,
+        bExternalLockSignal => bExternalSignalOvrd,
+        bAllPortsLocked => bAllPortsLockedOvrd,
+        iNewPortPos => iNewPortOvrd);
+
+    iPhaseCycleOvrd := iPhaseCycleOvrd + 1;
+
+    IF NOT fbViciEPSOvrd.bOverrideQualified THEN
+        // AN UNQUALIFIED OVERRIDE MUST NOT MOVE THE VALVE ONTO A LOCKED PORT
+        IF iPhaseCycleOvrd = 2 THEN
+            AssertEquals_INT(Expected:= 1 ,
+                Actual:= iNewPortOvrd,
+                Message:= 'MOVED TO A LOCKED PORT BEFORE THE OVERRIDE WAS QUALIFIED');
+
+            AssertEquals_BOOL(Expected:= TRUE ,
+                Actual:= bExternalSignalOvrd,
+                Message:= 'EXTERNAL LOCK SIGNAL WAS CLEARED BY AN UNQUALIFIED OVERRIDE');
+
+            AssertEquals_INT(Expected:= E_VICI_EPS_PORT_STATUS.LOCKED ,
+                Actual:= aEPSOvrd[3].ePortStatus,
+                Message:= 'PORT 3: LOCK WAS MASKED BY AN UNQUALIFIED OVERRIDE');
+        END_IF
+    ELSE
+        // THE OVERRIDE IS HONOURED ONLY NOW, AND IT STILL REPORTS THE TRUE LOCK STATE
+        AssertEquals_INT(Expected:= 3 ,
+            Actual:= iNewPortOvrd,
+            Message:= 'OVERRIDE WAS NOT HONOURED AFTER ITS QUALIFICATION TIME');
+
+        AssertEquals_BOOL(Expected:= TRUE ,
+            Actual:= bExternalSignalOvrd,
+            Message:= 'EXTERNAL LOCK SIGNAL WAS CLEARED BY THE OVERRIDE');
+
+        AssertEquals_INT(Expected:= E_VICI_EPS_PORT_STATUS.LOCKED ,
+            Actual:= aEPSOvrd[3].ePortStatus,
+            Message:= 'PORT 3: LOCK WAS MASKED BY THE OVERRIDE');
+
+        iTestPhaseOvrd := 2;
+        iPhaseCycleOvrd := 0;
+    END_IF
+END_IF
+
+IF iTestPhaseOvrd = 2 THEN
+    // EVERY PORT LOCKED: THE OVERRIDE IS IN SERIES WITH THE EPS INTERLOCK, SO NO MOTION
+    fbEPSOvrd(eps:=aEPSOvrd[1].stEPS);
+    fbEPSOvrd.setBit(0, FALSE);
+
+    fbEPSOvrd(eps:=aEPSOvrd[2].stEPS);
+    fbEPSOvrd.setBit(0, FALSE);
+
+    fbEPSOvrd(eps:=aEPSOvrd[4].stEPS);
+    fbEPSOvrd.setBit(0, FALSE);
+
+    fbViciEPSOvrd(aPortEPS := aEPSOvrd,
+        iReqPort := 4,
+        iPrevPort := iNewPortOvrd,
+        bOverride := bOverrideOvrd,
+        iNumPorts := iNumPorts,
+        bExternalLockSignal => bExternalSignalOvrd,
+        bAllPortsLocked => bAllPortsLockedOvrd,
+        iNewPortPos => iNewPortOvrd);
+
+    AssertEquals_BOOL(Expected:= TRUE ,
+        Actual:= bAllPortsLockedOvrd,
+        Message:= 'bAllPortsLocked WAS MASKED BY THE OVERRIDE');
+
+    AssertEquals_INT(Expected:= 3 ,
+        Actual:= iNewPortOvrd,
+        Message:= 'MOVED WHILE EVERY PORT WAS LOCKED, THE OVERRIDE MUST NOT BYPASS THE INTERLOCK');
+
+    bOverrideOvrd := FALSE;
+    tWatchdogOvrd(IN := FALSE, PT := T#5s);
+    TEST_FINISHED();
+END_IF
+
+IF tWatchdogOvrd.Q THEN
+    AssertEquals_BOOL(Expected:= TRUE ,
+        Actual:= fbViciEPSOvrd.bOverrideQualified,
+        Message:= 'OVERRIDE WAS NEVER QUALIFIED');
+
+    bOverrideOvrd := FALSE;
+    tWatchdogOvrd(IN := FALSE, PT := T#5s);
+    TEST_FINISHED();
+END_IF
+]]></ST>
       </Implementation>
     </Method>
     <Method Name="TestRequestEpsNotOkPortExpectNoPortChange" Id="{2deb68af-d1f2-4ae5-8783-ea2517fe3682}">
