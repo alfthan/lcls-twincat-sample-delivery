@@ -29,6 +29,10 @@ STRUCT
     xLLS	:	BOOL;
     //Top speed for the valve
     lrMaxSpeed	:	LREAL := 100; //deg/sec
+    //Full-stroke travel span of the valve axis, in axis position units
+    //(hardware dependent: override per instance if a different valve model
+    //or stroke is fitted, otherwise the GVL_PropValve default is used)
+    lrStrokeSpan	:	LREAL := GVL_PropValve.STROKE_SPAN;
 END_STRUCT
 END_TYPE
 ]]></Declaration>

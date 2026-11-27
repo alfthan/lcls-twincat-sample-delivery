@@ -29,8 +29,6 @@ VAR
     AnyError: BOOL;
     xReady	:	BOOL;
     rtReset: R_TRIG;
-
-    UpperLimit : LREAL := 2000;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -100,7 +98,8 @@ CASE eState OF
         stPropValve.ePVCtrlState := HMI_PropValveCtrlState.Manual;
         fbPID.i_Hold := TRUE;
         mcSmoothMover.Enable := TRUE;
-        mcSmoothMover.ReqAbsPos := LIMIT(0, INT_TO_LREAL(stPropValve.i_iPercOpenSP), 100)/100*UpperLimit;
+        //Percent open setpoint scaled to the configured valve stroke span
+        mcSmoothMover.ReqAbsPos := LIMIT(0, INT_TO_LREAL(stPropValve.i_iPercOpenSP), 100)/100*stPropValve.lrStrokeSpan;
 
     E_PropValveFBState.Error:
         //Purgatory
@@ -127,7 +126,7 @@ mcSmoothMover(Axis:=stPropValve.stAxis,
 AnyError := mcJog.Error OR mcPower.Error OR fbPID.q_Error OR mcSmoothMover.Error;
 
 (* EPICS display of perc open *)
-stPropValve.q_iPercOpen := LREAL_TO_INT(100*stPropValve.stAxis.NcToPlc.ActPos / UpperLimit);
+stPropValve.q_iPercOpen := LREAL_TO_INT(100*stPropValve.stAxis.NcToPlc.ActPos / stPropValve.lrStrokeSpan);
 
 (* EPICS display of limits *)
 stPropValve.xHLS := NOT tofHLSFilter.Q;

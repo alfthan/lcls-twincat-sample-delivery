@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="GVL_PropValve" Id="{7c2f3e5a-4d61-4b18-9a34-6f0be2c9d517}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+// A constant is the one place a literal may appear; exempt this declaration
+// from the static-analysis magic-number rule.
+{attribute 'analysis' := '-33'}
+(*
+    GVL_PropValve
+
+    Hardware configuration of the MKS 253 butterfly (proportional) valve driven
+    by FB_PropValve: the full-stroke travel span of the valve axis.
+
+    Usage:
+        iq_Injector.stPropVlv : ST_PropValveMKS253;  // lrStrokeSpan defaults to
+                                                     // GVL_PropValve.STROKE_SPAN
+        iq_Injector.stPropVlv.lrStrokeSpan := 2500;  // per-instance override
+
+    Objectives:
+        - One named source for the valve stroke span, so the manual position
+          conversion and the percent-open feedback in FB_PropValve cannot
+          diverge and a different valve model or stroke is configured here (or
+          per instance) instead of being edited inside the POU.
+        - Name the hardware scaling value instead of repeating the literal 2000
+          in the FB body.
+
+    History:
+        2026-11-27, Scirix Agent: created, replacing the literal UpperLimit
+          embedded in FB_PropValve (task #262, finding #912).
+*)
+VAR_GLOBAL CONSTANT
+    // Valve axis travel from fully closed to fully open, in axis position
+    // units (encoder counts) as reported by AXIS_REF.NcToPlc.ActPos
+    STROKE_SPAN : LREAL := 2000.0;
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>
