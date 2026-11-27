@@ -1,17 +1,26 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4022.18">
   <POU Name="FB_SensirionTransaction" Id="{8e8df19b-a4b0-41c3-b925-62273ee34de0}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_SensirionTransaction
+    <Declaration><![CDATA[(* FB_SensirionTransaction - perform one SHDLC transaction against a Sensirion flow meter *)
+(* Purpose: send one SHDLC request over a serial com buffer pair and collect the reply.*)
+(* Usage:   set i_bAdr/i_bCmd/i_bLen/i_abTxData, pulse i_xExecute, poll q_xDone/q_xError/q_xTimeout.*)
+(* Notes:   the caller supplied i_bLen, the device supplied reply length and the VAR_IN_OUT com*)
+(*          buffers are validated before use, so a bad request or buffer latches q_xError instead*)
+(*          of corrupting memory or faulting the PLC.*)
+(* History: 2026-11-27 - validate i_bLen, reply length and com buffer references (issue #297)*)
+FUNCTION_BLOCK FB_SensirionTransaction
 VAR CONSTANT
-    c_ArraySize : INT := 600;
-    c_DebugArraySize	:	INT:=40;
+    c_ArraySize		:	INT := 600;	(* Size in bytes of the internal Rx/Tx working and reported buffers *)
+    c_DebugArraySize	:	INT := 40;	(* Number of debug frames kept in q_abLastTxData/q_abLastRxData *)
+    c_TxHeaderLen		:	INT := 4;	(* Frame bytes ahead of the payload: start, address, command, length *)
+    c_ChkLen		:	INT := 1;	(* Checksum byte appended behind the payload *)
 END_VAR
 VAR_INPUT
     i_xExecute				: 	BOOL;				(* Rising edge execute *)
     i_bCmd					: 	BYTE; 				(* Command parameter *)
     i_bAdr					:	BYTE;	//Address parameter
-    i_bLen					:	BYTE;	//Length of transmission
-    i_abTxData				:	ARRAY[1..256] OF BYTE; //Transmission
+    i_bLen					:	BYTE;	(* Number of payload bytes used in i_abTxData, 0..256 *)
+    i_abTxData				:	ARRAY[1..256] OF BYTE; (* Payload to transmit, only the first i_bLen bytes are read *)
     i_tTimeOut				:	TIME := T#10S;  	(* Maximum wait time for reply *)
 END_VAR
 VAR_OUTPUT
@@ -29,8 +38,8 @@ VAR_OUTPUT
     q_baRxUnit	:	ARRAY[1..c_ArraySize] OF BYTE;
 END_VAR
 VAR_IN_OUT
-    iq_stSerialRXBuffer 	: ComBuffer;
-    iq_stSerialTXBuffer 	: ComBuffer;
+    iq_stSerialRXBuffer 	: ComBuffer;	(* Serial receive buffer - reference is validated with __ISVALIDREF *)
+    iq_stSerialTXBuffer 	: ComBuffer;	(* Serial transmit buffer - reference is validated with __ISVALIDREF *)
 END_VAR
 VAR
     //Usual stuff
@@ -62,6 +71,16 @@ END_VAR
       <ST><![CDATA[(* This function block performs serial transactions for the SHDCLC (Sensirion) Interface  *)
 (* Note the SHDLC transaction uses bytes and not strings *)
 
+(* Validate the VAR_IN_OUT com buffers before any dereference.  An unassigned reference*)
+(* would fault the PLC on the first buffer access, so latch an error and abandon the request.*)
+IF NOT __ISVALIDREF(iq_stSerialRXBuffer) OR NOT __ISVALIDREF(iq_stSerialTXBuffer) THEN
+    q_xDone := FALSE;
+    q_xError := TRUE;
+    q_sResult := 'Invalid serial com buffer reference - RX/TX buffer not assigned';
+    iStep := 0;
+    RETURN;
+END_IF
+
 (* rising edge trigger *)
 rtExecute(CLK:= i_xExecute);
 IF rtExecute.Q THEN
@@ -90,6 +109,16 @@ CASE iStep OF
         ; (* idle *)
 
     10:
+        (* Validate the caller supplied payload length before it is used as a MEMCPY count, as an*)
+        (* array index and as a frame-length term.  i_bLen is a BYTE today, but these checks keep*)
+        (* the frame inside baTxData/i_abTxData should the input type or the array sizes change.*)
+        IF (BYTE_TO_UDINT(i_bLen) > SIZEOF(i_abTxData))
+            OR (INT_TO_UDINT(c_TxHeaderLen + BYTE_TO_INT(i_bLen) + c_ChkLen) > INT_TO_UDINT(c_ArraySize)) THEN
+            q_sResult := CONCAT('Transaction failed in step 10, i_bLen out of range: ', BYTE_TO_STRING(i_bLen));
+            iStep := 9000;
+            RETURN;
+        END_IF
+
         (* Build the byte array *)
         //Every message starts with 0x7e, but we don't add that here.
         baTxData[1]:=16#00;
@@ -99,16 +128,16 @@ CASE iStep OF
         baTxData[4]:=i_bLen;
         //Add the message
         IF i_bLen > 0 THEN
-            MEMCPY(destAddr:=ADR(baTxData[5]), srcAddr:=ADR(i_abTxData), n:=i_bLen);
+            MEMCPY(destAddr:=ADR(baTxData[c_TxHeaderLen + 1]), srcAddr:=ADR(i_abTxData), n:=BYTE_TO_UDINT(i_bLen));
         END_IF
         //Add the checksum
-        baTxData[5+i_bLen]:=fSHDLCChecksum(i_bAdr:=i_bAdr, i_bCmd:=i_bCmd, i_bLen:=i_bLen, i_pbaTxData:=ADR(i_abTxData));
+        baTxData[c_TxHeaderLen + 1 + BYTE_TO_INT(i_bLen)]:=fSHDLCChecksum(i_bAdr:=i_bAdr, i_bCmd:=i_bCmd, i_bLen:=i_bLen, i_pbaTxData:=ADR(i_abTxData));
 
 
 
         //Calc the framewidth, a useful number
         // start + adr + cmd + len + tx data (len) + chk + stop
-        udiTxLen:=(4+BYTE_TO_UDINT(i_bLen)+1);
+        udiTxLen:=INT_TO_UDINT(c_TxHeaderLen + BYTE_TO_INT(i_bLen) + c_ChkLen);
         (* Byte stuffing
         If any special bytes are found in the message, they must be replaced with a special pair of bytes *)
         (* Seek through the byte array for any of the special bytes
@@ -119,7 +148,7 @@ CASE iStep OF
          FOR iSeek:=2 TO UDINT_TO_INT(udiTxLen) DO
              IF (baTxData[iSeek]=16#7E) OR (baTxData[iSeek]=16#7D) OR (baTxData[iSeek]=16#11) OR (baTxData[iSeek]=16#13) THEN
                  (* When a special byte is found, move the remaining message to the right by one byte *)
-                 fbShiftByteArray(ptArray:=ADR(baTxData), iSize:=256, iCurrIndex:=iSeek, iMessageLen:=(5+BYTE_TO_INT(i_bLen)+1), iShift:=1);
+                 fbShiftByteArray(ptArray:=ADR(baTxData), iSize:=256, iCurrIndex:=iSeek, iMessageLen:=(c_TxHeaderLen + 1 + BYTE_TO_INT(i_bLen) + c_ChkLen), iShift:=1);
                  IF fbShiftByteArray.q_xError THEN
                      q_sResult:='Transaction failed in step 10 while making room for the stuffing';
                      iStep := 9000;
@@ -138,6 +167,12 @@ CASE iStep OF
          baTxData[1]:=bDelimiter;
          //Add one to the frame width
          udiTxLen := udiTxLen +1;
+         (* Never index baTxData with an unbounded frame width *)
+         IF udiTxLen > INT_TO_UDINT(c_ArraySize) THEN
+             q_sResult := 'Transaction failed in step 10, stuffed frame exceeds the transmit buffer';
+             iStep := 9000;
+             RETURN;
+         END_IF
          baTxData[udiTxLen]:=bDelimiter;
 
 
@@ -206,15 +241,29 @@ CASE iStep OF
                 //Could check the checksum here...
                 //naaa
                 //Determine the Rx data length
-                bRxLen := baRxData[5];
+                (* The reply must at least hold the fixed header before the length/state bytes are read *)
+                IF udiRxLen < INT_TO_UDINT(c_TxHeaderLen + 1) THEN
+                    q_sResult := 'Transaction failed in step 30, reply shorter than the SHDLC header';
+                    iStep := 9000;
+                    RETURN;
+                END_IF
+                bRxLen := baRxData[c_TxHeaderLen + 1];
+                (* Validate the reply payload length reported by the device before it is used as a*)
+                (* MEMCPY count and as the length exported to the driver *)
+                IF (BYTE_TO_UDINT(bRxLen) > SIZEOF(q_baRxData))
+                    OR (INT_TO_UDINT(c_TxHeaderLen + 1 + BYTE_TO_INT(bRxLen)) > udiRxLen) THEN
+                    q_sResult := CONCAT('Transaction failed in step 30, reply length out of range: ', BYTE_TO_STRING(bRxLen));
+                    iStep := 9000;
+                    RETURN;
+                END_IF
                 IF i_bCmd = bCatch and bRxLen > 0 THEN
                 MEMCPY(destAddr:=ADR(q_baRxUnit), srcAddr:=ADR(baRxData), n:=udiRxLen);
                 END_IF
                 //Snag the state byte while we're here
-                q_bState := baRxData[4];
+                q_bState := baRxData[c_TxHeaderLen];
                 q_iRxLen := BYTE_TO_INT(bRxLen);
                 //Memcpy ze' data, check if memcpy is successful (returns other than zero) or bRxLen is zero (which causes memcpy to return zero)
-                IF UDINT_TO_BOOL(MEMCPY(srcAddr:=(ADR(baRxData)+5), destAddr:=ADR(q_baRxData), n:=BYTE_TO_UINT(bRxLen))) OR (bRxLen=0) THEN
+                IF UDINT_TO_BOOL(MEMCPY(srcAddr:=(ADR(baRxData) + c_TxHeaderLen + 1), destAddr:=ADR(q_baRxData), n:=BYTE_TO_UINT(bRxLen))) OR (bRxLen=0) THEN
                     q_sResult := 'Success';
                     iStep:=100;
                     //For debugging
