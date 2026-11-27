@@ -2,16 +2,32 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_ViciValveEPS" Id="{bc7ef07e-b156-4d0d-9141-185cefafbb6f}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_ViciValveEPS
+(*
+    Purpose : VICI selector valve guarded by the Equipment Protection System (EPS)
+              port interlock: only ports whose EPS status allows it are selected.
+    Usage   : Call every cyclic scan. The valve is commanded to the safe port the
+              EPS logic returns; one serial command is started per requested port
+              change and the result of the last command is exposed.
+    Objectives: give the valve the execute/acknowledge handshake of FB_ViciValve
+              and keep the latched command result visible to the caller.
+    History :
+        2026-11-27  Execute/acknowledge handshake added for the valve driver; the
+                    constant TRUE execute is removed and the latched result is
+                    exposed.
+*)
 VAR_INPUT
-    iAddress : INT;
-    iNumOfPorts : INT;
+    iAddress    : INT;   (* valve address on the serial bus *)
+    iNumOfPorts : INT;   (* number of selectable ports on the valve *)
 END_VAR
 VAR_IN_OUT
     aPortEPS : ARRAY [*] OF E_VICI_PORT_EPS; // EPS for each port.
 END_VAR
 VAR_OUTPUT
-    bAllPortsLocked : BOOL;
-    bExternalLock : BOOL;
+    bAllPortsLocked : BOOL;   (* every port is locked by the EPS *)
+    bExternalLock   : BOOL;   (* the EPS requests the external lock signal *)
+    q_xValveDone    : BOOL;   (* latched: the last valve command completed *)
+    q_xValveError   : BOOL;   (* latched: the last valve command failed *)
+    q_xValveTimeout : BOOL;   (* latched: the valve did not reply in time *)
 END_VAR
 VAR
     {attribute 'pytmc' := '
@@ -37,7 +53,11 @@ VAR
     {attribute 'pytmc' := 'pv: OVRD_COUNTDOWN'}
     tEPS_TimerCountDown : STRING := TIME_TO_STRING(T#0s);
 
-    fbNporValve : FB_ViciValve;
+    fbNporValve : FB_ViciValve;   (* port selector valve *)
+
+    xValveExecute : BOOL;   (* execute held while a valve command is in flight *)
+    xValveAck     : BOOL;   (* one scan acknowledge of the previous command result *)
+    iValveCmdPos  : INT;    (* port the current/last valve command was started for *)
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -55,9 +75,31 @@ fbViciEPS(aPortEPS := aPortEPS,
 
 iReqPos := iNewPortPos; // Update iReqPos PV  to be the safe port, otherwise when EPS is cleared the requested port would automatically change.
 
-fbNporValve(iAddress := iAddress,
+(* The valve driver starts one command on the rising edge of its execute input
+   only and keeps the result latched, so a command is armed when the safe port
+   changes and the previous result is acknowledged with that new request. *)
+xValveAck := FALSE;
+IF fbNporValve.q_xDone OR fbNporValve.q_xError OR fbNporValve.q_xTimeout THEN
+    xValveExecute := FALSE; // command finished: release the execute input
+END_IF
+IF iNewPortPos <> iValveCmdPos THEN
+    IF xValveExecute THEN
+        xValveExecute := FALSE; // falling edge aborts the command in flight
+    ELSE
+        iValveCmdPos := iNewPortPos;
+        xValveAck := TRUE; // clear the previous latched result
+        xValveExecute := TRUE; // rising edge starts the new command
+    END_IF
+END_IF
+
+fbNporValve(iAddress    := iAddress,
             iNumOfPorts := iNumOfPorts,
-            iReqPos := iNewPortPos);
+            iReqPos     := iValveCmdPos,
+            i_xExecute  := xValveExecute,
+            i_xAck      := xValveAck,
+            q_xDone     => q_xValveDone,
+            q_xError    => q_xValveError,
+            q_xTimeout  => q_xValveTimeout);
 ]]></ST>
     </Implementation>
   </POU>

@@ -31,6 +31,11 @@ VAR
     rtReset: R_TRIG;
 
     UpperLimit : LREAL := 2000;
+
+    //Execute/acknowledge handshake with the smooth mover
+    xSmoothMoveReq : BOOL;   //execute held while a manual move is in flight
+    xSmoothMoveAck : BOOL;   //one scan acknowledge of the mover's latched result
+    iManualPosOld  : INT;    //manual percentage open that was last commanded
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -102,6 +107,18 @@ CASE eState OF
         mcSmoothMover.Enable := TRUE;
         mcSmoothMover.ReqAbsPos := LIMIT(0, INT_TO_LREAL(stPropValve.i_iPercOpenSP), 100)/100*UpperLimit;
 
+        (*A new percentage open requests one move. The mover starts on the rising
+        edge of Execute only, so the request is held until Done/Error and the
+        previous latched result is acknowledged with the new request.*)
+        IF stPropValve.i_iPercOpenSP <> iManualPosOld AND NOT mcSmoothMover.Busy THEN
+            iManualPosOld := stPropValve.i_iPercOpenSP;
+            xSmoothMoveReq := TRUE;
+            xSmoothMoveAck := TRUE;
+        END_IF
+        IF mcSmoothMover.Done OR mcSmoothMover.Error THEN
+            xSmoothMoveReq := FALSE; (*release the execute input*)
+        END_IF
+
     E_PropValveFBState.Error:
         //Purgatory
         mcJog.JogBackwards := FALSE;
@@ -121,8 +138,13 @@ fbPID(i_lrSetpoint := REAL_TO_LREAL(stPropValve.i_rPressSP),
 mcPower(Axis:=stPropValve.stAxis);
 mcReset(Axis:=stPropValve.stAxis);
 mcJog(Axis:=stPropValve.stAxis, Mode:=E_JogMode.MC_JOGMODE_CONTINOUS);
+//The mover is only commanded in the manual state and stops when that state is left
+mcSmoothMover.Execute := xSmoothMoveReq AND (eState = E_PropValveFBState.Manual);
+//Acknowledge its latched result on a new request, an enable reset or while faulted
+mcSmoothMover.i_xAck := xSmoothMoveAck OR rtReset.Q OR (eState = E_PropValveFBState.Error);
 mcSmoothMover(Axis:=stPropValve.stAxis,
         Velocity:=stPropValve.lrMaxSpeed);
+xSmoothMoveAck := FALSE; (*one scan only*)
 
 AnyError := mcJog.Error OR mcPower.Error OR fbPID.q_Error OR mcSmoothMover.Error;
 

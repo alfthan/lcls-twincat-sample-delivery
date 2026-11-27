@@ -34,6 +34,10 @@ VAR
     rReqAbsPosOld: REAL := 0;
     rReqAbsPosPrevious: REAL;
     iI: INT;
+
+    //Execute/acknowledge handshake with the smooth mover
+    xSmoothMoveReq : BOOL;   //execute held while a smooth move is in flight
+    xSmoothMoveAck : BOOL;   //one scan acknowledge of the mover's latched result
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -80,12 +84,18 @@ CASE iq_ManipAxis.eState OF
     END_IF
 
     MoveEnabled:
-        mcSmoothMover.Enable := iq_ManipAxis.xEnable;
         mcSmoothMover.ReqAbsPos := LIMIT(-100, REAL_TO_LREAL(iq_ManipAxis.rReqAbsPos), 100);
-        mcSmoothMover.Execute := iq_ManipAxis.xStart;
-        (*We've already captured the rising edge of start (if there was one, so
-        go ahead and reset it.*)
-        iq_ManipAxis.xStart := FALSE;
+        (*The mover starts on the rising edge of Execute only and stops on the
+        falling edge, so the request is held until the move reports Done or Error.
+        Taking the start request also acknowledges the previous latched result.*)
+        IF iq_ManipAxis.xStart THEN
+            iq_ManipAxis.xStart := FALSE;
+            xSmoothMoveReq := TRUE;
+            xSmoothMoveAck := TRUE; (*one scan: clears the previous result*)
+        END_IF
+        IF mcSmoothMover.Done OR mcSmoothMover.Error THEN
+            xSmoothMoveReq := FALSE; (*release the execute input*)
+        END_IF
 
         //Halt
         mcHalt.Execute S= iq_ManipAxis.xStop;
@@ -116,8 +126,14 @@ END_IF
 (* Run the mc blocks *)
 ActPower();
 mcReset(Axis:=iq_ManipAxis.stAxis);
+//The mover may only start a move while the axis is enabled and in the move state
+mcSmoothMover.Enable := iq_ManipAxis.xEnable;
+mcSmoothMover.Execute := xSmoothMoveReq AND (iq_ManipAxis.eState = E_AxisMotionState.MoveEnabled);
+//Acknowledge its latched result when a new move is requested or on axis reset
+mcSmoothMover.i_xAck := xSmoothMoveAck OR iq_ManipAxis.xReset;
 mcSmoothMover(Axis:=iq_ManipAxis.stAxis,
     Velocity:=iq_ManipAxis.lrVelocity);
+xSmoothMoveAck := FALSE; (*one scan only*)
 mcHalt(Axis:=iq_ManipAxis.stAxis);
 
 iq_ManipAxis.xDmov := mcHalt.Done OR mcSmoothMover.Done;

@@ -2,58 +2,99 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_ViciDriver" Id="{0a9d4465-4ab2-4b83-97fa-f91b77d4959f}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_ViciDriver
+(*
+    Purpose : Runs one VICI valve command cycle over the serial link: read the
+              present port (CP) and, when the requested port differs, command the
+              valve to move to it (GO).
+    Usage   : Call every cyclic scan. i_xExecute is the caller supplied command
+              input: its rising edge starts one cycle and it has to stay TRUE
+              until the cycle ends; a falling edge before the cycle ends aborts
+              it. The cycle result is latched in q_xDone/q_xWarning/q_xError/
+              q_xTimeout and q_sResult and stays there until i_xAck clears it.
+              A new cycle cannot start while a result waits for acknowledgement.
+    Objectives: every command is edge triggered and bounded by i_tTimeOut, and the
+              result is held for the caller instead of being dropped on the
+              falling edge of the execute input.
+    History :
+        2026-11-27  Execute/acknowledge handshake: start only on the rising edge,
+                    abort on the falling edge and latch Done/Error/Timeout until
+                    i_xAck.
+*)
 VAR_INPUT
-    i_xExecute				: BOOL;					(* rising edge execute *)
-    i_tTimeOut				: TIME := t#10s;  		(* Maximum wait time for reply *)
-    i_stControl				: ST_ViciControl;
+    i_xExecute            : BOOL;             (* rising edge starts one cycle, hold TRUE until it ends *)
+    i_xAck                : BOOL;             (* TRUE clears the latched cycle result *)
+    i_tTimeOut            : TIME := t#10s;    (* maximum wait time for a reply *)
+    i_stControl           : ST_ViciControl;   (* valve address, requested port and port count *)
 END_VAR
 VAR_OUTPUT
-    q_xDone					: BOOL;
-    q_xError				: BOOL;
-    q_xWarning				: BOOL;					(* set in the event of an unexpected reply *)
-    q_xTimeout				: BOOL;
-    q_sResult				: STRING(255);
-    q_sLastSentString		: ARRAY[1..40] OF STRING;				(* Last String Sent to Serial Device - for debugging *)
-    q_sLastReceivedString	: ARRAY[1..40] OF STRING;				(* Last String Received from Serial Device - for debugging *)
-    q_stStatus				: ST_ViciStatus;
+    q_xDone               : BOOL;             (* latched: the cycle completed *)
+    q_xError              : BOOL;             (* latched: the cycle failed *)
+    q_xWarning            : BOOL;             (* latched: set in the event of an unexpected reply *)
+    q_xTimeout            : BOOL;             (* latched: the valve did not reply in time *)
+    q_sResult             : STRING(255);      (* latched: text of the last cycle result *)
+    q_sLastSentString     : ARRAY[1..40] OF STRING;   (* last strings sent to the serial device - for debugging *)
+    q_sLastReceivedString : ARRAY[1..40] OF STRING;   (* last strings received from the serial device - for debugging *)
+    q_stStatus            : ST_ViciStatus;    (* valve position status *)
 END_VAR
 VAR_IN_OUT
-    iq_stSerialRXBuffer 	: ComBuffer;
-    iq_stSerialTXBuffer 	: ComBuffer;
+    iq_stSerialRXBuffer   : ComBuffer;        (* serial receive buffer of the valve link *)
+    iq_stSerialTXBuffer   : ComBuffer;        (* serial transmit buffer of the valve link *)
 END_VAR
 VAR
-    iReqPosReverse          : INT;
-    rtExecute				: R_TRIG;
-    iStep					: INT;
-    sSendData				: STRING;
-    fbViciTransaction		: FB_ViciTransaction;
-    (*fbFormatString			: FB_FormatString;*)
-    (*fbSplit					: FB_Split255;*)
-    asReplyFields			: ARRAY[1..20] OF T_MaxString;
-    wChecksum: WORD;
-    rtStartIntegration: R_TRIG;
-    rtEndReset: R_TRIG;
-    sWorking: STRING;
-    strResponseExpected: STRING;
+    rtExecute             : R_TRIG;           (* rising edge of i_xExecute *)
+    ftExecute             : F_TRIG;           (* falling edge of i_xExecute *)
+    iStep                 : INT;              (* command step, 0 = idle *)
+    iReqPosReverse        : INT;              (* requested port mirrored across the valve axis of symmetry *)
+    sSendData             : STRING;           (* string sent in the current step *)
+    fbViciTransaction     : FB_ViciTransaction;   (* one request/reply serial transaction *)
+    (*fbFormatString      : FB_FormatString;*)
+    (*fbSplit             : FB_Split255;*)
+    asReplyFields         : ARRAY[1..20] OF T_MaxString;
+    wChecksum             : WORD;
+    rtStartIntegration    : R_TRIG;
+    rtEndReset            : R_TRIG;
+    sWorking              : STRING;
+    strResponseExpected   : STRING;
 END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[(* This function block performs serial transactions with a Vici *)
 
-(* rising edge trigger *)
-rtExecute(CLK:= i_xExecute);
-IF rtExecute.Q  THEN
-    q_xDone	:= FALSE;
-    q_xError := FALSE;
+(* Acknowledge: the only path that clears a latched cycle result. It is handled
+   before the start test so a caller may acknowledge the previous result and
+   start the next cycle in the same scan. *)
+IF i_xAck THEN
+    q_xDone    := FALSE;
+    q_xError   := FALSE;
     q_xWarning := FALSE;
     q_xTimeout := FALSE;
-    q_sResult:= '';
+    q_sResult  := '';
+    IF iStep = 8000 OR iStep = 9000 THEN
+        iStep := 0;   (* idle again: the next cycle needs a new rising edge *)
+    END_IF
+END_IF
+
+rtExecute(CLK := i_xExecute);
+ftExecute(CLK := i_xExecute);
+
+(* Start one cycle on the rising edge only, and only from idle, so that a pending
+   result is always acknowledged before a new command is accepted *)
+IF rtExecute.Q AND iStep = 0 THEN
+    q_stStatus.xPosValid := FALSE;
     FBViciTransaction( i_xExecute:= FALSE, iq_stSerialRXBuffer:= iq_stSerialRXBuffer, iq_stSerialTXBuffer:= iq_stSerialTXBuffer );  (* reset *)
     iStep := 10;
 END_IF
 
+(* Falling edge while a cycle is in flight: abort it. Nothing is latched, because
+   the caller withdrew the command before it ran to its end. *)
+IF ftExecute.Q AND (iStep = 10 OR iStep = 5000) THEN
+    FBViciTransaction( i_xExecute:= FALSE, i_CmdFlag:= FALSE, iq_stSerialRXBuffer:= iq_stSerialRXBuffer, iq_stSerialTXBuffer:= iq_stSerialTXBuffer );  (* reset *)
+    q_stStatus.xPosValid := FALSE;   (* the position is unconfirmed after an abort *)
+    iStep := 0;
+END_IF
+
 CASE iStep OF
-    0: (* idle *)
+    0: (* idle - waiting for the rising edge of i_xExecute *)
         ;
 
     10: (* Get Position *)
@@ -129,17 +170,13 @@ CASE iStep OF
         END_IF
 
 
-    8000: (* done *)
+    8000: (* done - latched until i_xAck *)
         q_xDone := TRUE;
         IF q_sResult = '' THEN
             q_sResult := 'Success';
         END_IF
-        IF  i_xExecute = FALSE THEN
-            q_xDone:= FALSE;
-            iStep := 0;
-        END_IF
 
-    9000:
+    9000: (* fault - latched until i_xAck *)
         _A_ClearStatus();
         q_xTimeout := FBViciTransaction.q_xTimeout;
         q_xError := TRUE;
@@ -148,7 +185,8 @@ CASE iStep OF
 END_CASE
 
 q_sLastSentString := FBViciTransaction.q_sLastSentString;
-q_sLastReceivedString := FBViciTransaction.q_sLastReceivedString;]]></ST>
+q_sLastReceivedString := FBViciTransaction.q_sLastReceivedString;
+]]></ST>
     </Implementation>
     <Action Name="_A_ClearStatus" Id="{42c895f3-3c80-4de4-8e1e-57fd42b7f434}">
       <Implementation>

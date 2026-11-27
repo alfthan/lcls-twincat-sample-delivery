@@ -2,26 +2,50 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4020.12">
   <POU Name="MC_SmoothMover" Id="{49439872-0161-4fd4-9e7f-62bcb9508941}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK MC_SmoothMover
+(*
+    Purpose : Moves an axis to an absolute position with a single MC_MoveAbsolute
+              request, alternating between two instances so a new request can
+              follow the previous one.
+    Usage   : Call every cyclic scan. Enable is the permissive: no move is started
+              unless it is TRUE. The rising edge of Execute requests one move to
+              ReqAbsPos and Execute has to stay TRUE until the move reports Done or
+              Error; a falling edge of Execute (or of Enable) before the move ends
+              aborts the request and stops the axis. Done and Error are latched and
+              cleared only by i_xAck, so a new move is accepted only after the
+              previous result has been acknowledged.
+    Objectives: command execution is edge triggered, a withdrawn command stops the
+              motion, and the outcome is held for the caller to acknowledge.
+    History :
+        2017-08-30  A. Wallace - initial version.
+        2026-11-27  Execute/acknowledge handshake: start only on the rising edge of
+                    Execute, abort and stop on the falling edge, and latch
+                    Done/Error until i_xAck instead of clearing Done with Busy or
+                    Error.
+*)
 VAR_IN_OUT
-    Axis	:	AXIS_REF;
+    Axis : AXIS_REF;   (* axis under control *)
 END_VAR
 VAR_INPUT
-    Velocity : LREAL;
-    ReqAbsPos : LREAL; //A
-    Enable	:	BOOL; //While true the block will accept new positions and attempt to move to them if they are different
-    Execute	:	BOOL; //Will retry a move if the target position is the same
+    Velocity  : LREAL;   (* move velocity in axis units per second *)
+    ReqAbsPos : LREAL;   (* absolute target position in axis units *)
+    Enable    : BOOL;    (* permissive: a move is only started while TRUE *)
+    Execute   : BOOL;    (* rising edge requests one move, falling edge aborts and stops it *)
+    i_xAck    : BOOL;    (* TRUE clears the latched Done/Error *)
 END_VAR
 VAR_OUTPUT
-    Done	:	BOOL;
-    Busy	:	BOOL;
-    Error	:	BOOL;
+    Done  : BOOL;   (* latched: the last requested move completed *)
+    Busy  : BOOL;   (* a move, or the stop that aborts it, is in progress *)
+    Error : BOOL;   (* latched: the last requested move failed *)
 END_VAR
 VAR
-    mcMoveAbsolute : ARRAY[1..2] OF MC_MoveAbsolute;
-    iI: INT;
-    imcBlockIndex: INT;
-    ReqAbsPosPrevious	: LREAL;
-    rtExecute: R_TRIG;
+    mcMoveAbsolute : ARRAY[1..2] OF MC_MoveAbsolute;   (* alternating move requests *)
+    mcHalt         : MC_Halt;                          (* stop issued when a move is aborted *)
+    iI             : INT;                              (* move block loop index *)
+    imcBlockIndex  : INT;                              (* move block carrying the current request *)
+    rtExecute      : R_TRIG;                           (* rising edge of Execute *)
+    ftExecute      : F_TRIG;                           (* falling edge of Execute *)
+    xMoveActive    : BOOL;                             (* the current move block carries our request *)
+    xHaltReq       : BOOL;                             (* stop requested by an aborted move *)
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -29,35 +53,72 @@ END_VAR
 2017-8-30
 A. Wallace
 
-Enable means the block will always aquire new positions as they are updated. Execute
-can be used to retry a move.
+Enable is the permissive. The rising edge of Execute requests a move to ReqAbsPos
+and Execute is held until the move reports Done or Error; a falling edge aborts the
+request and stops the axis. Done and Error are latched until acknowledged.
 *)
 
+(* Acknowledge: the only path that clears a latched result *)
+IF i_xAck THEN
+    Done  := FALSE;
+    Error := FALSE;
+END_IF
 
-rtExecute(CLK:=Execute);
+rtExecute(CLK := Execute);
+ftExecute(CLK := Execute);
 
-IF ( (ReqAbsPos <> ReqAbsPosPrevious AND Enable) OR rtExecute.Q) THEN
-            mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
-            imcBlockIndex := imcBlockIndex + 1;
-            IF imcBlockIndex >2 THEN imcBlockIndex := 1; END_IF
-            mcMoveAbsolute[imcBlockIndex].Position := ReqAbsPos;
-            mcMoveAbsolute[imcBlockIndex].Execute := TRUE;
-            ReqAbsPosPrevious := ReqAbsPos;
-        ELSIF mcMoveAbsolute[imcBlockIndex].Done OR
-                mcMoveAbsolute[imcBlockIndex].CommandAborted OR
-                mcMoveAbsolute[imcBlockIndex].Busy OR
-                mcMoveAbsolute[imcBlockIndex].Error THEN
-            mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
-        END_IF
+(* Abort: the caller withdrew the command (or the permissive) before the move
+   finished. The request is dropped and the axis is stopped. Nothing is latched,
+   because the caller did not let the command run to its end. *)
+IF xMoveActive AND (ftExecute.Q OR NOT Enable) THEN
+    mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
+    xMoveActive := FALSE;
+    xHaltReq := TRUE;
+END_IF
 
+(* Start one move on the rising edge of Execute only, and only while no result is
+   waiting for acknowledgement. A new request supersedes a running move. *)
+IF rtExecute.Q AND Enable AND NOT Done AND NOT Error THEN
+    mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
+    imcBlockIndex := imcBlockIndex + 1;
+    IF imcBlockIndex > 2 THEN
+        imcBlockIndex := 1;
+    END_IF
+    mcMoveAbsolute[imcBlockIndex].Position := ReqAbsPos;
+    mcMoveAbsolute[imcBlockIndex].Execute := TRUE;
+    xMoveActive := TRUE;
+END_IF
+
+(* Run both move blocks; the new request aborts the previous motion (MC_Aborting) *)
 FOR iI := 1 TO 2 DO
     mcMoveAbsolute[iI](Axis := Axis, Velocity:=Velocity, BufferMode:=MC_Aborting);
 END_FOR
 
-Error := mcMoveAbsolute[1].Error OR mcMoveAbsolute[2].Error;
-Done S= mcMoveAbsolute[1].Done OR mcMoveAbsolute[2].Done;
-Busy := mcMoveAbsolute[1].Busy OR mcMoveAbsolute[2].Busy;
-Done R= Busy OR Error;]]></ST>
+(* Latch the outcome of the move this block owns *)
+IF xMoveActive THEN
+    IF mcMoveAbsolute[imcBlockIndex].Done THEN
+        Done := TRUE;
+        xMoveActive := FALSE;
+        mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
+    ELSIF mcMoveAbsolute[imcBlockIndex].Error THEN
+        Error := TRUE;
+        xMoveActive := FALSE;
+        mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
+    ELSIF mcMoveAbsolute[imcBlockIndex].CommandAborted THEN
+        Error := TRUE;   (* the move was superseded by another motion command *)
+        xMoveActive := FALSE;
+        mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
+    END_IF
+END_IF
+
+(* Stop requested by an aborted move: hold Execute until MC_Halt has finished *)
+mcHalt(Axis := Axis, Execute := xHaltReq, BufferMode := MC_Aborting);
+IF mcHalt.Done OR mcHalt.Error OR mcHalt.CommandAborted THEN
+    xHaltReq := FALSE;
+END_IF
+
+Busy := (xMoveActive AND mcMoveAbsolute[imcBlockIndex].Busy) OR xHaltReq;
+]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>

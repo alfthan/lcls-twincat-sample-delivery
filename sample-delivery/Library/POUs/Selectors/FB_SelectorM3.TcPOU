@@ -69,6 +69,9 @@ VAR
     viciIndex: INT := 1;
     fmIndex: INT := 1;
 
+    (* VICI driver execute/acknowledge handshake *)
+    xViciResult : BOOL;   (* the selected driver holds a latched result *)
+
     //stComIn_EP6002P1		AT %I*	:	EL6inData22B (*KL6inData22B*);
     //stComOut_EP6002P1		AT %Q*	:	EL6outData22B (*KL6outData22B*);
 
@@ -152,25 +155,26 @@ fbViciSerial(stSerialComm := stViciSerial);]]></ST>
       <Implementation>
         <ST><![CDATA[stSelector.astViciVlvCtrl[viciIndex].iAddress := viciIndex;
 
+(* One driver cycle at a time. The driver starts on the rising edge of its execute
+   input only, so execute is held until it reports a result and is then dropped
+   while the latched result is acknowledged. *)
+xViciResult := afbViciDriver[viciIndex].q_xDone OR
+               afbViciDriver[viciIndex].q_xError OR
+               afbViciDriver[viciIndex].q_xTimeout;
+
 afbViciDriver[viciIndex](
-    i_xExecute:= TRUE,
+    i_xExecute:= NOT xViciResult,
+    i_xAck:= xViciResult,
     i_tTimeOut:= t#10s,
     i_stControl:= stSelector.astViciVlvCtrl[viciIndex],
     iq_stSerialRXBuffer:= stViciSerial.RxBuffer,
     iq_stSerialTXBuffer:= stViciSerial.TxBuffer,
-    q_stStatus=>stSelector.astViciVlvStatus[viciIndex]);
+    q_stStatus=> stSelector.astViciVlvStatus[viciIndex]);
 
-IF 	afbViciDriver[viciIndex].q_xDone OR
-    afbViciDriver[viciIndex].q_xError OR
-    afbViciDriver[viciIndex].q_xTimeout THEN
-    (* reset function for next time *)
-    afbViciDriver[viciIndex](i_xExecute:=FALSE,
-        iq_stSerialRXBuffer:= stViciSerial.RxBuffer,
-        iq_stSerialTXBuffer:= stViciSerial.TxBuffer);
-
+IF xViciResult THEN
+    (* hand the serial link to the next valve *)
     viciIndex := viciIndex + 1;
     IF viciIndex > 2 THEN viciIndex := 1; END_IF
-
 END_IF]]></ST>
       </Implementation>
     </Action>

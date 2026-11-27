@@ -2,14 +2,30 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_4PortViciValve" Id="{35f5328b-2692-4fc5-a1f1-07aefd5e56d3}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_4PortViciValve
+(*
+    Purpose : Four port VICI selector valve device block.
+    Usage   : Call every cyclic scan. The rising edge of i_xExecute commands the
+              port in iReqPos, the falling edge aborts the command and i_xAck
+              clears the latched result.
+    Objectives: the valve command is edge triggered and its result is latched for
+              the caller to acknowledge.
+    History :
+        2026-11-27  Execute/acknowledge handshake added; the valve driver is no
+                    longer armed with a constant TRUE execute.
+*)
 VAR_INPUT
-    iAdress : INT;
+    iAdress    : INT;    (* valve address on the serial bus *)
+    i_xExecute : BOOL;   (* rising edge commands the port in iReqPos, falling edge aborts *)
+    i_xAck     : BOOL;   (* TRUE clears the latched result *)
 END_VAR
 VAR_OUTPUT
+    q_xDone    : BOOL;   (* latched: the last command completed *)
+    q_xError   : BOOL;   (* latched: the last command failed *)
+    q_xTimeout : BOOL;   (* latched: the valve did not reply in time *)
 END_VAR
 VAR
-    fbNporValve : FB_ViciValve;
-    iNumPorts : INT := 4;
+    fbNporValve : FB_ViciValve;   (* port selector valve *)
+    iNumPorts   : INT := 4;       (* number of ports of a 4 port valve *)
 
     {attribute 'pytmc' := '
         pv: iReqPos
@@ -24,7 +40,15 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[fbNporValve(iAddress := iAdress, iNumOfPorts := iNumPorts, iReqPos := iReqPos);]]></ST>
+      <ST><![CDATA[fbNporValve(iAdress     := iAdress,
+            iNumOfPorts := iNumPorts,
+            iReqPos     := iReqPos,
+            i_xExecute  := i_xExecute,
+            i_xAck      := i_xAck,
+            q_xDone     => q_xDone,
+            q_xError    => q_xError,
+            q_xTimeout  => q_xTimeout);
+]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>

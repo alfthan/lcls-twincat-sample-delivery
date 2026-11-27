@@ -2,22 +2,41 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_ViciValve" Id="{867cd0ab-cbb3-428d-92e9-f85cb5a24957}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_ViciValve
-(* FB for VICI RS-232 Valave*)
-
+(*
+    Purpose : VICI RS-232 multi port selector valve device block: owns the serial
+              wrapper and one FB_ViciDriver for the valve.
+    Usage   : Call every cyclic scan. i_xExecute and i_xAck are the caller's
+              execute/acknowledge handshake (see FB_ViciDriver): the rising edge
+              of i_xExecute commands the port in iReqPos, the falling edge aborts
+              the command, and the latched result is forwarded to the caller so it
+              can acknowledge it.
+    Objectives: expose the latched Done/Error/Timeout of the driver and never arm
+              the driver with a level or constant TRUE execute.
+    History :
+        2026-11-27  Execute/acknowledge handshake exposed to the caller; the
+                    constant TRUE execute that restarted the driver every cycle and
+                    the falling edge reset are removed.
+*)
 VAR_INPUT
-    iAddress : INT;
-    iNumOfPorts : INT;
-    iReqPos : INT;
+    iAddress    : INT;    (* valve address on the serial bus *)
+    iNumOfPorts : INT;    (* number of selectable ports on the valve *)
+    iReqPos     : INT;    (* requested port, 1..iNumOfPorts *)
+    i_xExecute  : BOOL;   (* rising edge commands the requested port, falling edge aborts *)
+    i_xAck      : BOOL;   (* TRUE clears the latched result *)
 END_VAR
 VAR_OUTPUT
+    q_xDone     : BOOL;             (* latched: the last command completed *)
+    q_xError    : BOOL;             (* latched: the last command failed *)
+    q_xWarning  : BOOL;             (* latched: unexpected valve reply *)
+    q_xTimeout  : BOOL;             (* latched: the valve did not reply in time *)
+    q_sResult   : STRING(255);      (* latched: text of the last result *)
+    q_stStatus  : ST_ViciStatus;    (* valve position status *)
 END_VAR
 VAR
-    fbViciDriver  : FB_ViciDriver;
-    fbViciSerial  : FB_SerialCommWrapper;
-    stViciSerial  : ST_SerialComm;
-    stViciVlvCtrl : ST_ViciControl;
-    stViciVlvStatus : ST_ViciStatus;
-
+    fbViciDriver  : FB_ViciDriver;          (* serial driver for this valve *)
+    fbViciSerial  : FB_SerialCommWrapper;   (* serial port wrapper *)
+    stViciSerial  : ST_SerialComm;          (* serial port buffers *)
+    stViciVlvCtrl : ST_ViciControl;         (* control block handed to the driver *)
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -25,25 +44,26 @@ END_VAR
 stViciVlvCtrl.iAddress := iAddress;
 stViciVlvCtrl.iPortCount := iNumOfPorts;
 
+(* The driver owns the execute/acknowledge handshake: the caller's execute and
+   acknowledge are passed straight through and its latched result is forwarded. *)
 fbViciDriver(
-    i_xExecute:= TRUE,
+    i_xExecute:= i_xExecute,
+    i_xAck:= i_xAck,
     i_tTimeOut:= t#10s,
     i_stControl:= stViciVlvCtrl,
     iq_stSerialRXBuffer:= stViciSerial.RxBuffer,
-    iq_stSerialTXBuffer:= stViciSerial.TxBuffer,
-    q_stStatus=> stViciVlvStatus);
+    iq_stSerialTXBuffer:= stViciSerial.TxBuffer);
 
-IF 	fbViciDriver.q_xDone OR
-    fbViciDriver.q_xError OR
-    fbViciDriver.q_xTimeout THEN
-    (* reset function for next time *)
-    fbViciDriver(i_xExecute:=FALSE,
-        iq_stSerialRXBuffer:= stViciSerial.RxBuffer,
-        iq_stSerialTXBuffer:= stViciSerial.TxBuffer);
+q_xDone := fbViciDriver.q_xDone;
+q_xError := fbViciDriver.q_xError;
+q_xWarning := fbViciDriver.q_xWarning;
+q_xTimeout := fbViciDriver.q_xTimeout;
+q_sResult := fbViciDriver.q_sResult;
+q_stStatus := fbViciDriver.q_stStatus;
 
-END_IF
-
-fbViciSerial(stSerialComm := stViciSerial);]]></ST>
+(* Service the serial link *)
+fbViciSerial(stSerialComm := stViciSerial);
+]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>
