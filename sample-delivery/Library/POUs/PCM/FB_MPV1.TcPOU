@@ -1,8 +1,15 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_MPV1" Id="{ba3e2f33-c936-4cf9-8e17-0622679aedea}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_MPV1
-(* Pressure Control Module 0-10v control and readback signal *)
+    <Declaration><![CDATA[// Pressure control module (PCM) with 0-10 V control and 0-10 V readback.
+// Drives two proportionairs: stPropAir1 (PropAir:01) and stPropAir2 (PropAir:02).
+// Each channel owns its own FB_PCM_AIO instance; both instances must be called
+// every cycle, otherwise that channel's pressure readback stays at 0 and its
+// 0-10 V control output is never commanded.
+// History:
+//   2026-11-27  FB_MPV1: drive PropAir2 from stPropAir2 (was a duplicated
+//               PropAir1 call, leaving PropAir:02 uncontrolled).
+FUNCTION_BLOCK FB_MPV1
 VAR_INPUT
 END_VAR
 VAR_OUTPUT
@@ -23,7 +30,7 @@ END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[PropAir1(iq_stRegProp:=stPropAir1, iDEVICE_MAX_PRESSURE := 100);
-PropAir1(iq_stRegProp:=stPropAir1, iDEVICE_MAX_PRESSURE := 100);]]></ST>
+PropAir2(iq_stRegProp:=stPropAir2, iDEVICE_MAX_PRESSURE := 100);]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>
