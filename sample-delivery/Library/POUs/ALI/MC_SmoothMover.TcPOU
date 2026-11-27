@@ -1,27 +1,85 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4020.12">
   <POU Name="MC_SmoothMover" Id="{49439872-0161-4fd4-9e7f-62bcb9508941}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK MC_SmoothMover
+    <Declaration><![CDATA[(*
+    MC_SmoothMover - absolute-move sequencer with validated setpoints.
+
+    PURPOSE
+        Drive one NC axis to a requested absolute position, alternating between
+        two MC_MoveAbsolute instances so the caller can keep updating the target
+        (Enable) or retry the same target (Execute) instead of waiting for the
+        single PLCopen execute handshake of one MC block to finish.
+
+    USAGE
+        Instantiated once per axis and called unconditionally every PLC cycle
+        with the axis reference and that axis' configured travel span:
+
+            mcSmoothMover(Axis        := iq_ManipAxis.stAxis,
+                          Velocity    := iq_ManipAxis.lrVelocity,
+                          PositionMin := GVL_ALI.K_MANIP_AXIS_POS_MIN,
+                          PositionMax := GVL_ALI.K_MANIP_AXIS_POS_MAX);
+
+        Enable  : while TRUE the block accepts a new position and moves to it
+                  as soon as it differs from the last accepted request.
+        Execute : a rising edge retries a move to the current position.
+
+    OBJECTIVES
+        - Move to ReqAbsPos when it changes while Enable is TRUE, or on a rising
+          edge of Execute.
+        - Never hand an out-of-range or non-finite setpoint to the motion
+          kernel. The target position is clamped into [PositionMin,
+          PositionMax], the velocity into [VelocityMin, VelocityMax], and a NaN
+          request or an unusable limit configuration is rejected: no move is
+          issued and the last accepted setpoints are kept. Valid and Limited
+          report both cases to the caller.
+        - Keep the Done/Busy/Error handshake of the underlying MC blocks.
+
+    LIMITS
+        PositionMin / PositionMax are the configured soft limits of the axis and
+        must lie inside the axis' physical travel span. VelocityMin /
+        VelocityMax are the useful speed band: MC_MoveAbsolute requires a
+        velocity above zero, so VelocityMin defaults to 0.0 and a zero or
+        negative velocity is clamped up to it, where the MC block reports its
+        own invalid-velocity error instead of driving the axis backwards.
+
+    HISTORY
+        2017-08-30 / A. Wallace - original block.
+        2026-11-27 / Scirix Agent - added PositionMin/PositionMax,
+            VelocityMin/VelocityMax, the clamp/reject path and the Valid /
+            Limited outputs. ReqAbsPos was written straight into
+            MC_MoveAbsolute.Position and Velocity was passed on unchecked, so an
+            out-of-range target or speed reached the hardware (audit finding
+            #491, convention conv_cc08fe4a0a00).
+*)
+FUNCTION_BLOCK MC_SmoothMover
 VAR_IN_OUT
-    Axis	:	AXIS_REF;
+    Axis	:	AXIS_REF; //NC axis this mover commands
 END_VAR
 VAR_INPUT
-    Velocity : LREAL;
-    ReqAbsPos : LREAL; //A
+    Velocity	:	LREAL; //Requested velocity [axis units/s], clamped into [VelocityMin, VelocityMax]
+    ReqAbsPos	:	LREAL; //Requested absolute position [axis units], clamped into [PositionMin, PositionMax]
     Enable	:	BOOL; //While true the block will accept new positions and attempt to move to them if they are different
     Execute	:	BOOL; //Will retry a move if the target position is the same
+    PositionMin	:	LREAL := -100.0; //Lower soft limit applied to ReqAbsPos [axis units]
+    PositionMax	:	LREAL := 100.0; //Upper soft limit applied to ReqAbsPos [axis units]
+    VelocityMin	:	LREAL := 0.0; //Lower limit applied to Velocity [axis units/s]; MC_MoveAbsolute needs a value above zero
+    VelocityMax	:	LREAL := 100.0; //Upper limit applied to Velocity [axis units/s]
 END_VAR
 VAR_OUTPUT
-    Done	:	BOOL;
-    Busy	:	BOOL;
-    Error	:	BOOL;
+    Done	:	BOOL; //TRUE while either MC block reports Done
+    Busy	:	BOOL; //TRUE while either MC block reports Busy
+    Error	:	BOOL; //TRUE while either MC block reports Error
+    Valid	:	BOOL; //TRUE while the request and the limit configuration are usable; FALSE means no move was issued
+    Limited	:	BOOL; //TRUE while the accepted setpoint had to be clamped into the configured limits
 END_VAR
 VAR
-    mcMoveAbsolute : ARRAY[1..2] OF MC_MoveAbsolute;
-    iI: INT;
-    imcBlockIndex: INT;
-    ReqAbsPosPrevious	: LREAL;
-    rtExecute: R_TRIG;
+    mcMoveAbsolute : ARRAY[1..2] OF MC_MoveAbsolute; //The two alternating move blocks
+    iI: INT; //MC block array index
+    imcBlockIndex: INT; //Index of the MC block currently being executed
+    ReqAbsPosPrevious	: LREAL; //Last request a move was issued for; the raw (unclamped) value, so a held out-of-range request is not re-issued every cycle
+    rtExecute: R_TRIG; //Rising edge detector for the Execute input
+    lrPositionCmd : LREAL; //Clamped target position handed to MC_MoveAbsolute [axis units]
+    lrVelocityCmd : LREAL; //Clamped velocity handed to MC_MoveAbsolute [axis units/s]
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -33,15 +91,40 @@ Enable means the block will always aquire new positions as they are updated. Exe
 can be used to retry a move.
 *)
 
+// ---------------------------------------------------------------------------
+// Setpoint validation - runs before any move is commanded.
+// ReqAbsPos and Velocity are written by EPICS through the caller's structures,
+// so they are treated as external input: a NaN request (a NaN never compares
+// equal to itself) or an unusable limit configuration (min > max) is rejected
+// and no move is issued. Otherwise the position is clamped into
+// [PositionMin, PositionMax] and the velocity into [VelocityMin, VelocityMax];
+// +/-Infinity is caught by the clamp itself.
+// ---------------------------------------------------------------------------
+Valid := (PositionMin <= PositionMax)
+         AND (VelocityMin <= VelocityMax)
+         AND (ReqAbsPos = ReqAbsPos)
+         AND (Velocity = Velocity);
+
+IF Valid THEN
+    lrPositionCmd := LIMIT(PositionMin, ReqAbsPos, PositionMax);
+    lrVelocityCmd := LIMIT(VelocityMin, Velocity, VelocityMax);
+    Limited := (lrPositionCmd <> ReqAbsPos) OR (lrVelocityCmd <> Velocity);
+ELSE
+    (* Rejected: keep the last accepted setpoints and wait for a usable one *)
+    Limited := TRUE;
+END_IF
+
 
 rtExecute(CLK:=Execute);
 
-IF ( (ReqAbsPos <> ReqAbsPosPrevious AND Enable) OR rtExecute.Q) THEN
+IF Valid AND ((ReqAbsPos <> ReqAbsPosPrevious AND Enable) OR rtExecute.Q) THEN
             mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
             imcBlockIndex := imcBlockIndex + 1;
             IF imcBlockIndex >2 THEN imcBlockIndex := 1; END_IF
-            mcMoveAbsolute[imcBlockIndex].Position := ReqAbsPos;
+            mcMoveAbsolute[imcBlockIndex].Position := lrPositionCmd;
             mcMoveAbsolute[imcBlockIndex].Execute := TRUE;
+            (* Store the raw request, not the clamped value, so a request that
+               sits outside the limits is not re-issued on every cycle *)
             ReqAbsPosPrevious := ReqAbsPos;
         ELSIF mcMoveAbsolute[imcBlockIndex].Done OR
                 mcMoveAbsolute[imcBlockIndex].CommandAborted OR
@@ -51,7 +134,7 @@ IF ( (ReqAbsPos <> ReqAbsPosPrevious AND Enable) OR rtExecute.Q) THEN
         END_IF
 
 FOR iI := 1 TO 2 DO
-    mcMoveAbsolute[iI](Axis := Axis, Velocity:=Velocity, BufferMode:=MC_Aborting);
+    mcMoveAbsolute[iI](Axis := Axis, Velocity:=lrVelocityCmd, BufferMode:=MC_Aborting);
 END_FOR
 
 Error := mcMoveAbsolute[1].Error OR mcMoveAbsolute[2].Error;

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="GVL_ALI" Id="{AB748E37-EB40-48E5-AE71-BEC66011A428}">
+    <Declaration><![CDATA[(*
+    GVL_ALI
+
+    Purpose : Single source of truth for the travel spans of the ALI actuator
+              axes. The three manipulator axes are soft-limited to +/-100 mm and
+              the MKS 253 butterfly valve travels 0..2000 deg between its closed
+              and open limit switches. Both spans are properties of the installed
+              hardware, so they are declared once here and passed to MC_SmoothMover
+              as its position limits instead of being repeated as literals inside
+              FB_ManipAxis and FB_PropValve.
+
+    Usage   : Reference the members qualified, e.g.
+                  GVL_ALI.K_MANIP_AXIS_POS_MAX
+              (the list is qualified_only). Pass them to the PositionMin /
+              PositionMax inputs of MC_SmoothMover, which clamps every requested
+              absolute position into that span before handing it to
+              MC_MoveAbsolute.
+
+    History : 2026-11-27 - Created (Scirix Agent). Manipulator soft limit and
+              butterfly valve travel span extracted out of the FB_ManipAxis
+              LIMIT call and the FB_PropValve UpperLimit variable (audit
+              finding #491, convention conv_cc08fe4a0a00).
+*)
+{attribute 'qualified_only'}
+VAR_GLOBAL CONSTANT
+    (* Lowest commanded position of a manipulator axis, negative travel stop [mm] *)
+    K_MANIP_AXIS_POS_MIN : LREAL := -100.0;
+    (* Highest commanded position of a manipulator axis, positive travel stop [mm] *)
+    K_MANIP_AXIS_POS_MAX : LREAL := 100.0;
+
+    (* Butterfly valve axis position with the valve fully closed (low limit switch) [deg] *)
+    K_PROP_VALVE_AXIS_POS_MIN : LREAL := 0.0;
+    (* Butterfly valve axis position with the valve fully open (high limit switch) [deg] *)
+    K_PROP_VALVE_AXIS_POS_MAX : LREAL := 2000.0;
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

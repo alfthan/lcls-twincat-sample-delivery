@@ -81,7 +81,10 @@ CASE iq_ManipAxis.eState OF
 
     MoveEnabled:
         mcSmoothMover.Enable := iq_ManipAxis.xEnable;
-        mcSmoothMover.ReqAbsPos := LIMIT(-100, REAL_TO_LREAL(iq_ManipAxis.rReqAbsPos), 100);
+        (* The requested position comes straight from EPICS; MC_SmoothMover clamps it
+           into the manipulator travel span and rejects a non-finite request before
+           anything is commanded to the axis. *)
+        mcSmoothMover.ReqAbsPos := REAL_TO_LREAL(iq_ManipAxis.rReqAbsPos);
         mcSmoothMover.Execute := iq_ManipAxis.xStart;
         (*We've already captured the rising edge of start (if there was one, so
         go ahead and reset it.*)
@@ -117,7 +120,9 @@ END_IF
 ActPower();
 mcReset(Axis:=iq_ManipAxis.stAxis);
 mcSmoothMover(Axis:=iq_ManipAxis.stAxis,
-    Velocity:=iq_ManipAxis.lrVelocity);
+    Velocity:=iq_ManipAxis.lrVelocity,
+    PositionMin:=GVL_ALI.K_MANIP_AXIS_POS_MIN,
+    PositionMax:=GVL_ALI.K_MANIP_AXIS_POS_MAX);
 mcHalt(Axis:=iq_ManipAxis.stAxis);
 
 iq_ManipAxis.xDmov := mcHalt.Done OR mcSmoothMover.Done;
