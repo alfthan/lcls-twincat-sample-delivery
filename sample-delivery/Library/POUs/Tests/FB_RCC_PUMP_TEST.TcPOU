@@ -1,0 +1,161 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_RCC_PUMP_TEST" Id="{3f1d1c2a-8b47-4f2e-9a06-5c1d47e2b910}" SpecialFunc="None">
+    <Declaration><![CDATA[(*
+    FB_RCC_PUMP_TEST - TcUnit suite for FB_RCC_PUMP.
+
+    PURPOSE
+        Verifies that the RCC pump sequence terminates: the VENT state must
+        close the vent valve and hand back to the terminal IDLE state when its
+        step time expires instead of re-entering itself, and the block must be
+        ready for a new start pulse afterwards.
+
+    USAGE
+        Instantiated in PRG_TEST and executed by TcUnit.RUN(). The unit under
+        test and the valve structures live at suite level because the block
+        owns a TON: a method-local instance is re-created on every test cycle,
+        so its step timer would never expire.
+
+    OBJECTIVES
+        - VENT is left on its own once T3 has elapsed (VRC-01 closes again).
+        - After a vent the block is back in IDLE: every valve closed and VENT
+          not re-entered.
+        - A second start pulse runs another complete sequence, so the machine
+          is not left stuck in any state.
+        - The whole test is bounded by a watchdog, so a stuck state machine
+          fails the test instead of hanging the suite.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Added, together with the VENT -> IDLE exit it covers (audit
+            finding #1162). Earlier author/date history: none, the block had
+            no dedicated test before.
+*)
+FUNCTION_BLOCK FB_RCC_PUMP_TEST EXTENDS FB_TestSuite
+VAR
+    // Unit under test; suite level so its TON keeps its state between cycles.
+    fbRCC_PUMP : FB_RCC_PUMP;
+
+    stVRC_01 : ST_VRC;  // Vent valve; commanded open by the VENT state only.
+    stVRC_02 : ST_VRC;  // Vacuum valve; commanded open by the VACUUM state only.
+    stVRC_03 : ST_VRC;  // Pressure valve; commanded open by the PRESSURE state only.
+
+    T1 : TIME := T#100MS;  // PRESSURE step duration used by the test.
+    T2 : TIME := T#100MS;  // VACUUM step duration used by the test.
+    T3 : TIME := T#100MS;  // VENT step duration used by the test.
+
+    bStart : BOOL;  // Start pulse handed to the block; the block clears it.
+    bStop : BOOL;   // Stop pulse handed to the block; the block clears it.
+
+    bInitTest : BOOL := TRUE;            // Re-initialise the running case.
+    bPrevVentOpen : BOOL := FALSE;       // VRC-01 state of the previous cycle (edge detect).
+    iVentCount : INT := 0;               // Number of times VENT has been entered.
+    bVentFinished : BOOL := FALSE;       // VENT closed VRC-01 again, i.e. the machine left VENT.
+    bRestartIssued : BOOL := FALSE;      // Second start pulse has been sent.
+    bSeenPressureAgain : BOOL := FALSE;  // PRESSURE reached again after the restart.
+    bDone : BOOL := FALSE;               // Both sequences finished and checked.
+    fbWatchdog : TON;                    // Bounds the test; a stuck machine fails instead of hanging.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[TestVentTimeoutExpectReturnToIdle();]]></ST>
+    </Implementation>
+    <Method Name="TestVentTimeoutExpectReturnToIdle" Id="{0d7c9a51-4c8e-4b53-8f61-2a9e6d3c5b74}">
+      <Declaration><![CDATA[METHOD TestVentTimeoutExpectReturnToIdle : REFERENCE TO FB_Test
+VAR_INPUT
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('TestVentTimeoutExpectReturnToIdle');
+
+// Hard bound for the whole test (two sequences of roughly 300 ms each): a
+// machine that never leaves VENT fails here instead of hanging the suite.
+fbWatchdog(IN := NOT bDone, PT := T#10S);
+
+IF bInitTest THEN
+    fbWatchdog(IN := FALSE);
+    bStop := FALSE;
+    bStart := TRUE;  // Start the first sequence.
+    bPrevVentOpen := FALSE;
+    iVentCount := 0;
+    bVentFinished := FALSE;
+    bRestartIssued := FALSE;
+    bSeenPressureAgain := FALSE;
+    bDone := FALSE;
+    bInitTest := FALSE;
+END_IF
+
+// One call per test cycle, exactly as a caller runs the block.
+fbRCC_PUMP(stRCC_VRC_01 := stVRC_01,
+    stRCC_VRC_02 := stVRC_02,
+    stRCC_VRC_03 := stVRC_03,
+    T1 := T1,
+    T2 := T2,
+    T3 := T3,
+    bStart := bStart,
+    bStop := bStop);
+
+// VENT is the only state that commands VRC-01 open, so a rising edge on
+// VRC-01 counts one entry into VENT.
+IF stVRC_01.pv_xOPN_SW AND NOT bPrevVentOpen THEN
+    iVentCount := iVentCount + 1;
+END_IF
+bPrevVentOpen := stVRC_01.pv_xOPN_SW;
+
+// The sequence has to leave VENT by itself once T3 has elapsed.
+IF iVentCount > 0 AND NOT stVRC_01.pv_xOPN_SW THEN
+    bVentFinished := TRUE;
+END_IF
+
+// After the first vent the block must be back in IDLE: every valve closed and
+// VENT entered exactly once (the old code re-entered VENT every cycle and kept
+// VRC-01 commanded open forever).
+IF bVentFinished AND NOT bRestartIssued THEN
+    AssertEquals_BOOL(Expected := FALSE,
+        Actual := stVRC_01.pv_xOPN_SW,
+        Message := 'VRC_01 STILL OPEN AFTER VENT TIMED OUT');
+    AssertEquals_BOOL(Expected := FALSE,
+        Actual := stVRC_02.pv_xOPN_SW,
+        Message := 'VRC_02 OPEN IN IDLE');
+    AssertEquals_BOOL(Expected := FALSE,
+        Actual := stVRC_03.pv_xOPN_SW,
+        Message := 'VRC_03 OPEN IN IDLE');
+    AssertEquals_INT(Expected := 1,
+        Actual := iVentCount,
+        Message := 'VENT RE-ENTERED AFTER ITS TIMEOUT');
+
+    bStart := TRUE;  // Second pulse: the machine must run another sequence.
+    bRestartIssued := TRUE;
+END_IF
+
+// The second sequence has to walk through PRESSURE again ...
+IF bRestartIssued AND stVRC_03.pv_xOPN_SW THEN
+    bSeenPressureAgain := TRUE;
+END_IF
+
+// ... and has to terminate in IDLE exactly like the first one.
+IF bRestartIssued AND iVentCount >= 2 AND NOT stVRC_01.pv_xOPN_SW THEN
+    AssertEquals_BOOL(Expected := TRUE,
+        Actual := bSeenPressureAgain,
+        Message := 'SECOND SEQUENCE NEVER REACHED PRESSURE');
+    AssertEquals_BOOL(Expected := FALSE,
+        Actual := stVRC_01.pv_xOPN_SW,
+        Message := 'VRC_01 STILL OPEN AFTER SECOND VENT');
+    bDone := TRUE;
+END_IF
+
+IF bDone THEN
+    TEST_FINISHED();
+    bInitTest := TRUE;
+END_IF
+
+// Fail loudly rather than hanging the suite when the sequence never ends.
+IF fbWatchdog.Q THEN
+    AssertEquals_BOOL(Expected := TRUE,
+        Actual := FALSE,
+        Message := 'SEQUENCE DID NOT FINISH WITHIN 10S - VENT DID NOT EXIT');
+    TEST_FINISHED();
+    bInitTest := TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -273,6 +273,9 @@
     <Compile Include="POUs\TEC\FB_TECTransaction.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\Tests\FB_RCC_PUMP_TEST.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\Tests\FB_RCC_TEST.TcPOU">
       <SubType>Code</SubType>
     </Compile>

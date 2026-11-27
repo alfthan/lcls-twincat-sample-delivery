@@ -1,32 +1,102 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_RCC_PUMP" Id="{ecb6e357-c313-4cb0-8d54-9c6287211993}" SpecialFunc="None">
-    <Declaration><![CDATA[(*This is a funcitonal prototype for in AIR RCC PUMP / L.V. RCC / WIP NAME*)
+    <Declaration><![CDATA[(*
+    FB_RCC_PUMP - pressure / vacuum / vent valve sequencer for one RCC pump
+    station (functional prototype).
+
+    PURPOSE
+        Runs the fixed pressure-vacuum-vent sequence of an RCC pump station on
+        the three isolation valves VRC-01 (vent), VRC-02 (vacuum) and VRC-03
+        (pressure). The block is an explicit state machine: every state
+        commands exactly one valve pattern and leaves on a documented
+        condition, and the sequence always terminates back in IDLE with every
+        valve closed.
+
+    USAGE
+        Instantiated once per RCC pump station and called unconditionally every
+        PLC cycle:
+
+            fbRCC_PUMP(stRCC_VRC_01 := ..., stRCC_VRC_02 := ..., stRCC_VRC_03 := ...,
+                       T1 := ..., T2 := ..., T3 := ..., bStart := ..., bStop := ...);
+
+        bStart runs one complete sequence, bStop aborts the sequence from any
+        state. Both are one-shot commands: the block clears them itself, so the
+        caller has to pulse them rather than hold them.
+
+    SEQUENCE / TRANSITIONS
+        IDLE     - No valve is commanded. Entry state and terminal state of the
+                   sequence.
+                   -> PRESSURE when bStart is TRUE (tTime := T1, timer restarted).
+        PRESSURE - VRC-03 open, VRC-01 and VRC-02 closed.
+                   -> VACUUM when the pressure step time T1 has elapsed.
+        VACUUM   - VRC-02 open, VRC-01 and VRC-03 closed.
+                   -> VENT when the vacuum step time T2 has elapsed.
+        VENT     - VRC-01 open to atmosphere, VRC-02 and VRC-03 closed.
+                   -> IDLE when the vent step time T3 has elapsed: VRC-01 is
+                      closed again, tTime is reloaded with T1 and the step
+                      timer is restarted, so the block is back in its terminal
+                      state and ready for the next bStart pulse.
+        From any state bStop closes all three valves and forces IDLE.
+
+    OBJECTIVES
+        - One action per state: each state commands exactly one valve pattern.
+        - One documented exit per state: every state either advances on its own
+          step timer or is aborted by bStop. No state re-enters itself, so the
+          machine cannot get stuck and always returns to IDLE.
+        - Terminate in a safe idle state: the last transition of the sequence
+          closes the vent valve, so the station is never left venting.
+
+    PRECONDITIONS
+        - T1 / T2 / T3 are supplied by the caller: the PRESSURE, VACUUM and VENT
+          step durations. A duration of T#0s makes that step exit on the first
+          cycle after it is entered.
+        - The valve structures (ST_VRC) carry the open command pv_xOPN_SW that
+          this block drives; their feedback and interlocks are not evaluated
+          here.
+        - This block is a sequencing prototype only. It has no permit, interlock
+          or fault input and no feedback timeout, so a caller must add those
+          before using it to drive hardware.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            VENT no longer re-enters itself: it now closes VRC-01, reloads
+            tTime with T1, restarts tTimer1 and returns to the terminal IDLE
+            state, so the sequence terminates and can be started again (audit
+            finding #1162). Documented the action and transition condition of
+            every state, both here and inline.
+        Earlier author/date history was not recorded in this file. The block
+        came in as a functional prototype of the RCC pump state machine
+        (ba6b0aa, 2023).
+*)
 FUNCTION_BLOCK FB_RCC_PUMP
 VAR_IN_OUT
-    stRCC_VRC_01 : ST_VRC;
-    stRCC_VRC_02 : ST_VRC;
-    stRCC_VRC_03 : ST_VRC;
+    stRCC_VRC_01 : ST_VRC;  // Vent valve; opened in VENT only.
+    stRCC_VRC_02 : ST_VRC;  // Vacuum valve; opened in VACUUM only.
+    stRCC_VRC_03 : ST_VRC;  // Pressure valve; opened in PRESSURE only.
 
-    T1 : TIME;
-    T2 : TIME;
-    T3 : TIME;
+    T1 : TIME;  // PRESSURE step duration, loaded into the step timer on start.
+    T2 : TIME;  // VACUUM step duration, loaded into the step timer at PRESSURE -> VACUUM.
+    T3 : TIME;  // VENT step duration, loaded into the step timer at VACUUM -> VENT.
 
-    bStart 	: BOOL := FALSE;
-    bStop	: BOOL := FALSE;
+    bStart : BOOL := FALSE;  // One-shot start command; runs one sequence from IDLE. Cleared by the block.
+    bStop : BOOL := FALSE;   // One-shot stop command; aborts to IDLE and closes every valve. Cleared by the block.
 
 END_VAR
 VAR_OUTPUT
 END_VAR
 VAR
-    iState 	: INT := E_RCC_PUMP_SM_STATES.IDLE;
-    tTimer1 : TON;
-    tTime : TIME := T#0s;
-END_VAR
-]]></Declaration>
+    iState : E_RCC_PUMP_SM_STATES := E_RCC_PUMP_SM_STATES.IDLE;  // Current state of the sequence.
+    tTimer1 : TON;  // Step timer; Q ends the step of the current state.
+    tTime : TIME := T#0s;  // Step duration currently loaded into tTimer1 (T1, T2 or T3).
+END_VAR]]></Declaration>
     <Implementation>
-      <ST><![CDATA[tTimer1(IN:=TRUE, PT:= tTime);
+      <ST><![CDATA[// Step timer. A transition restarts it with tTimer1(IN:=FALSE), which also
+// executes the TON and clears ET/Q, so the next step times from zero.
+tTimer1(IN:=TRUE, PT:= tTime);
 
+// bStop is a one-shot abort from any state: command every valve closed and
+// return to the terminal IDLE state.
 IF bStop THEN
     bStop := FALSE;
     stRCC_VRC_01.pv_xOPN_SW := FALSE;
@@ -36,48 +106,55 @@ IF bStop THEN
 END_IF
 
 CASE iState OF
-    E_RCC_PUMP_SM_STATES.IDLE: // IDlE
+    E_RCC_PUMP_SM_STATES.IDLE: // IDLE - no valve commanded, wait for a start pulse
+        IF bStart THEN
+            // Transition IDLE -> PRESSURE: start pulse received. Consume the
+            // pulse, arm the timer with the pressure step duration and restart it.
+            bStart := FALSE;
+            tTime := T1;
+            tTimer1(IN:=FALSE); // RESTART TIMER
+            iState := E_RCC_PUMP_SM_STATES.PRESSURE;
+        END_IF
 
-    IF bStart THEN
-        iState := E_RCC_PUMP_SM_STATES.PRESSURE;
-        bStart := FALSE;
-        tTime := T1;
-        tTimer1(IN:=FALSE); // RESTART TIMER
-    END_IF
+    E_RCC_PUMP_SM_STATES.PRESSURE: // PRESSURE - VRC-03 open for T1
+        stRCC_VRC_01.pv_xOPN_SW := FALSE;
+        stRCC_VRC_02.pv_xOPN_SW := FALSE;
+        stRCC_VRC_03.pv_xOPN_SW := TRUE;
 
-    E_RCC_PUMP_SM_STATES.PRESSURE: // PRESSURE
+        IF tTimer1.Q THEN
+            // Transition PRESSURE -> VACUUM: pressure step time T1 elapsed.
+            tTime := T2;
+            tTimer1(IN:=FALSE); // RESTART TIMER
+            iState := E_RCC_PUMP_SM_STATES.VACUUM;
+        END_IF
 
-    stRCC_VRC_01.pv_xOPN_SW := FALSE;
-    stRCC_VRC_02.pv_xOPN_SW := FALSE;
-    stRCC_VRC_03.pv_xOPN_SW := TRUE;
+    E_RCC_PUMP_SM_STATES.VACUUM: // VACUUM - VRC-02 open for T2
+        stRCC_VRC_01.pv_xOPN_SW := FALSE;
+        stRCC_VRC_02.pv_xOPN_SW := TRUE;
+        stRCC_VRC_03.pv_xOPN_SW := FALSE;
 
-    IF tTimer1.Q THEN
-        iState := E_RCC_PUMP_SM_STATES.VACUUM;
-        tTime := T2;
-        tTimer1(IN:=FALSE); // RESTART TIMER
-    END_IF
+        IF tTimer1.Q THEN
+            // Transition VACUUM -> VENT: vacuum step time T2 elapsed.
+            tTime := T3;
+            tTimer1(IN:=FALSE); // RESTART TIMER
+            iState := E_RCC_PUMP_SM_STATES.VENT;
+        END_IF
 
-    E_RCC_PUMP_SM_STATES.VACUUM: // VACUUM
+    E_RCC_PUMP_SM_STATES.VENT: // VENT - VRC-01 open to atmosphere for T3
+        stRCC_VRC_01.pv_xOPN_SW := TRUE;
+        stRCC_VRC_02.pv_xOPN_SW := FALSE;
+        stRCC_VRC_03.pv_xOPN_SW := FALSE;
 
-    stRCC_VRC_01.pv_xOPN_SW := FALSE;
-    stRCC_VRC_02.pv_xOPN_SW := TRUE;
-    stRCC_VRC_03.pv_xOPN_SW := FALSE;
-
-    IF tTimer1.Q THEN
-        iState := E_RCC_PUMP_SM_STATES.VENT;
-        tTime := T3;
-        tTimer1(IN:=FALSE); // RESTART TIMER
-    END_IF
-
-    E_RCC_PUMP_SM_STATES.VENT: // VENT;
-
-    stRCC_VRC_01.pv_xOPN_SW := TRUE;
-    stRCC_VRC_02.pv_xOPN_SW := FALSE;
-    stRCC_VRC_03.pv_xOPN_SW := FALSE;
-
-    IF tTimer1.Q THEN
-        iState := E_RCC_PUMP_SM_STATES.VENT;
-    END_IF
+        IF tTimer1.Q THEN
+            // Transition VENT -> IDLE (terminal state): vent step time T3
+            // elapsed. Close the vent valve so the station is left with every
+            // valve closed, reload the timer with the first step of the next
+            // cycle and restart it so the next bStart runs a fresh sequence.
+            stRCC_VRC_01.pv_xOPN_SW := FALSE;
+            tTime := T1;
+            tTimer1(IN:=FALSE); // RESTART TIMER
+            iState := E_RCC_PUMP_SM_STATES.IDLE;
+        END_IF
 
 END_CASE]]></ST>
     </Implementation>
