@@ -1,12 +1,89 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <DUT Name="E_VICI_EPS_PORT_STATUS" Id="{0243ee2e-9542-41eb-bd95-e56cebb740a9}">
-    <Declaration><![CDATA[{attribute 'qualified_only'}
+    <Declaration><![CDATA[(*
+    E_VICI_EPS_PORT_STATUS - state of one port of a multi-port Vici selector
+    valve, as seen by the equipment protection system (EPS).
+
+    PURPOSE
+        Says what one port of a 4-port or 12-port Vici valve is doing right now:
+        whether the valve is routed to it (ACTIVE), whether it is free to be
+        selected (UNLOCKED), or whether the EPS interlock flags of the port block
+        it (LOCKED). Every port of the valve carries one of these values in the
+        ePortStatus member of its E_VICI_PORT_EPS structure.
+
+    USAGE
+        Written once per PLC cycle by FB_VICI_EPS_LOGIC from the EPS flag word of
+        every port (DUT_EPS: bEPS_OK is TRUE only while every bit of nFlags is
+        TRUE):
+            - every port is first set to UNLOCKED or LOCKED from its bEPS_OK;
+            - the requested port is then set to ACTIVE when its bEPS_OK is TRUE
+              or the temporary OVRD_MODE override is on, so on that port ACTIVE
+              replaces the value its EPS flags alone would give.
+        Read back by FB_VICI_EPS_LOGIC (the LOCKED comparison that raises
+        bExternalLock) and published to EPICS by the ePortStatus pytmc pragma of
+        E_VICI_PORT_EPS as the integer 0 / 1 / 2. Do not renumber the members:
+        those numbers are the EPICS encoding and the value operators see.
+
+    OBJECTIVES
+        - Give the port state a named type instead of a bare INT, so that the
+          logic, the tests and the EPICS consumers agree on what 0 / 1 / 2 mean.
+        - Keep the two independent facts apart: ACTIVE says where the valve is
+          routed, LOCKED says whether the EPS permits that port at all.
+
+    PRECONDITIONS
+        - A port can read ACTIVE while its own EPS flags are not OK: the ACTIVE
+          assignment runs after the per-port EPS evaluation and the override path
+          does not test bEPS_OK. Callers that need "routed and permitted" must
+          test ACTIVE together with the port's DUT_EPS.bEPS_OK.
+        - When the requested port is not permitted and no override is on, no
+          port carries ACTIVE at all; FB_VICI_EPS_LOGIC then keeps the valve at
+          the previous port, whose status is UNLOCKED or LOCKED.
+        - The type is declared {attribute 'qualified_only'} and
+          {attribute 'strict'}, so the members must always be written as
+          E_VICI_EPS_PORT_STATUS.<member> and an unknown member is a compile
+          error.
+
+    UNITS
+        None - a state, not a measurement. The 0 / 1 / 2 values exist only to
+        give the ePortStatus EPICS record a stable integer.
+
+    HISTORY
+        2026-05-19 J. Zamudio - enum added as ENUM_PORT_STATUS with the Vici
+            4-port valve EPS function block (06669bb); no member documented.
+        2026-07-07 J. Zamudio - pre-commit style pass (01bbcff), contents
+            unchanged.
+        2026-07-17 J. Zamudio - renamed to E_VICI_EPS_PORT_STATUS and made
+            qualified_only/strict in the generic FB_ViciValveEPS refactor
+            (2810241); no member documented.
+        2026-11-27 Scirix Agent - added this header and one comment per member
+            (audit finding 1154); no member, value or pragma changed.
+*)
+{attribute 'qualified_only'}
 {attribute 'strict'}
 TYPE E_VICI_EPS_PORT_STATUS :
 (
+    // Port the valve is routed to. FB_VICI_EPS_LOGIC flags the requested port
+    // (iNewPortPos) with it, replacing the UNLOCKED or LOCKED value that port's
+    // own EPS flags would give, and only while that port's EPS flags are all
+    // TRUE (DUT_EPS.bEPS_OK) or the temporary OVRD_MODE override is on. It is
+    // the target port, so it is also the port the valve sits on from the next
+    // scan on. No unit; EPICS value 0.
     ACTIVE := 0,
+
+    // Port the valve may be routed to. All bits of the port's EPS flag word are
+    // TRUE (DUT_EPS.bEPS_OK), so the equipment protection system permits it.
+    // Every port that is not flagged ACTIVE on this scan carries UNLOCKED or
+    // LOCKED, including the port the valve is currently sitting on, so UNLOCKED
+    // alone does not mean the valve is there. No unit; EPICS value 1.
     UNLOCKED := 1,
+
+    // Port the valve must not be routed to. At least one bit of the port's EPS
+    // flag word is FALSE (DUT_EPS.bEPS_OK = FALSE), so the equipment protection
+    // system blocks it and only the temporary OVRD_MODE override can still
+    // select it. When the requested port is also the current one and LOCKED
+    // without override, FB_VICI_EPS_LOGIC raises bExternalLock. No unit; EPICS
+    // value 2.
     LOCKED := 2
 );
 END_TYPE
