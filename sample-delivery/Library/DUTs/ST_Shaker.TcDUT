@@ -1,15 +1,70 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
   <DUT Name="ST_Shaker" Id="{91397fcc-47b0-4fa6-90e4-4877149b614d}">
-    <Declaration><![CDATA[TYPE ST_Shaker :
+    <Declaration><![CDATA[(*
+    Purpose : Interface structure of one shaker channel of an M3 selector
+              (sample-delivery). It groups the four signals of the channel: the
+              field power output, the interlock permissive, the local switch
+              input and the EPICS on/off command.
+
+    Usage   : Instantiated four times per selector as stShaker01..stShaker04 in
+              FB_SelectorM3 and published as Shaker:01..Shaker:04 of the
+              selector instance (e.g. XCS:SDS:SEL:A..D:Shaker:01..04 in the
+              sds-m101 deployment; the P prefix follows the deployment).
+              FB_SelectorM3 services each channel with a plain copy every scan,
+                  stShakerNN.q_xPwrDO := stShakerNN.i_xEpics;
+              so the EPICS command reaches the field with no interlock gating,
+              no local-switch gating and no delay. xIlk and i_xSwitch are read
+              by no logic in this library, so populating them here does not
+              inhibit the output.
+
+    Objectives: - one named interface per shaker, shared by the deployment GVL,
+                  the selector FB and the generated EPICS records;
+                - keep command (i_xEpics), field output (q_xPwrDO), interlock
+                  (xIlk) and local switch (i_xSwitch) apart, so that the
+                  interlock and EPICS command paths cannot be cross-wired
+                  without being noticed.
+
+    Polarity: all four members are TRUE-active; nothing in this type is
+              inverted. q_xPwrDO TRUE energizes the digital output. xIlk is the
+              conditioned permissive - TRUE = interlocks satisfied, FALSE (or an
+              open/broken fail-safe contact) not permitted - so whoever writes
+              xIlk must have applied the normally-closed inversion already; this
+              structure does not do it. i_xSwitch and i_xEpics TRUE are "shaker
+              on" requests.
+
+    Units   : none - all four members are BOOL. q_xPwrDO is a raw %Q* terminal
+              bit (24 V on the EP2338-1001 digital output channel it is linked
+              to; channels 9..12 carry shakers 1..4 of that selector). The other
+              three are software booleans, published to EPICS by the pytmc
+              pragmas on the members.
+
+    History : 2023-05-19 J. Zamudio - type added with the initial commit
+              (746deac), no member documented.
+              2025-05-29 J. Zamudio - moved to Library/DUTs in the project
+              restructure (9b2fb2c), contents unchanged.
+              2026-11-27 Scirix Agent - added this header and one comment per
+              member (audit finding 442); no member, type or pragma changed.
+*)
+TYPE ST_Shaker :
 STRUCT
 
+// Power output of the shaker. Raw %Q* terminal bit, TRUE = output energized (24 V
+// on the linked EP2338-1001 channel), FALSE = de-energized. Boolean, no unit.
+// Driven every scan by FB_SelectorM3 from i_xEpics; the deployment GVL links
+// shakers 1..4 to channels 9..12 of that selector's "M3 Selector x Digital IO".
 {attribute 'pytmc' := '
     pv: PowerOn
     io: i
  '}
 q_xPwrDO AT %Q*	:	BOOL;
 
+// External interlock permissive of the shaker. TRUE = interlocks satisfied and
+// the shaker may run, FALSE = not permitted. Fail-safe normally closed: the raw
+// field contact is inverted by the caller, this structure inverts nothing.
+// Boolean, no unit. Read by no logic today - FB_SelectorM3 does not gate
+// q_xPwrDO with it - so the EPICS readback (pv Ilk) stays FALSE and does not
+// actually inhibit the output.
 {attribute 'pytmc' := '
     pv: Ilk
     io: i
@@ -17,8 +72,15 @@ q_xPwrDO AT %Q*	:	BOOL;
 xIlk		:	BOOL;
 
 
+// Local field switch of the shaker. TRUE = switch in the on position, FALSE =
+// off. Boolean, no unit. Software input only: it carries no pytmc pragma (so it
+// is not published to EPICS) and no logic in this library reads it.
 i_xSwitch	:	BOOL;
 
+// EPICS on/off command for the shaker. TRUE = operator requests the shaker on,
+// FALSE = off. Boolean, no unit. The only member EPICS writes (pv Ctrl);
+// FB_SelectorM3 copies it unchanged into q_xPwrDO, so neither xIlk nor
+// i_xSwitch gates this path.
 {attribute 'pytmc' := '
     pv: Ctrl
     io: o
