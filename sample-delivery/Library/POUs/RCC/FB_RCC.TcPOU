@@ -1,29 +1,102 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_RCC" Id="{7003c15e-7f35-4bdc-b753-d97dc650dfad}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_RCC
+    <Declaration><![CDATA[(*
+    FB_RCC - residue gas cycle controller for one RCC station.
+
+    PURPOSE
+        Adapts the operator-facing RCC command/status structure (ST_RCC) and
+        the four RCC valve structures to the RCC state machine FB_RCC_SM: it
+        converts the cycle timings held in ST_RCC from seconds to TIME and
+        forwards the valve, gauge and command references. All sequence logic
+        lives in FB_RCC_SM; this block only adapts and guards the interface.
+
+    USAGE
+        Instantiated once per RCC station and called unconditionally every PLC
+        cycle with all six VAR_IN_OUT references assigned, e.g. PRG_RCC:
+
+            fbRCC_SIM(stRCC_VRC_01 := RCC_VRC_01.iq_stValve,
+                      stRCC_VRC_02 := RCC_VRC_02.iq_stValve,
+                      stRCC_VRC_03 := RCC_VRC_03.iq_stValve,
+                      stRCC_VRC_04 := RCC_VRC_04.iq_stValve,
+                      stRCC_GCP_01 := RCC_GCP_01,
+                      stRCC_CTL    := stRCC_CTL_SIM);
+
+        The caller owns every referenced structure: the block writes the valve
+        open commands (pv_xOPN_SW) and the command/status fields through those
+        references and keeps no copy of its own.
+
+    OBJECTIVES
+        - Keep the sequence in FB_RCC_SM and only the ST_RCC timings <-> TIME
+          conversion here, so the timings stay operator-facing seconds.
+        - Validate every externally supplied reference before the first
+          dereference and return early when one is invalid (see PRECONDITIONS),
+          so an unassigned VAR_IN_OUT can neither fault the task nor read or
+          write memory that does not belong to the RCC.
+        - Report that outcome on q_xRefsValid rather than through stRCC_CTL,
+          which may itself be the invalid reference.
+
+    PRECONDITIONS
+        - Every VAR_IN_OUT above must be assigned by the caller. The compiler
+          cannot reject an unassigned in-out parameter, so the block checks all
+          six itself with __ISVALIDREF on every cycle. While any reference is
+          invalid the state machine is not called, the valve commands and
+          stRCC_CTL are left untouched, and q_xRefsValid stays FALSE.
+        - stRCC_CTL.bError is only set by FB_RCC_SM, i.e. only once all
+          references are valid and the sequence is actually running.
+
+    HISTORY
+        2025-06-05 / Josue Zamudio
+            Block created with the RCC support on the PLC level.
+        2026-11-27 / Scirix Agent
+            Added the VAR_IN_OUT validity gate with an early return, the
+            q_xRefsValid output and this header (audit finding #921,
+            convention conv_e1b24623f1df).
+
+    NOTE
+        POUs/FB_RCC.TcPOU is a stale duplicate that Library.plcproj does not
+        compile; only this RCC/ copy is built.
+*)
+FUNCTION_BLOCK FB_RCC
 VAR_IN_OUT
-    stRCC_VRC_01 : ST_VRC;
-    stRCC_VRC_02 : ST_VRC;
-    stRCC_VRC_03 : ST_VRC;
-    stRCC_VRC_04 : ST_VRC;
-    stRCC_GCP_01 : ST_VG;
-    stRCC_CTL : ST_RCC;
+    stRCC_VRC_01 : ST_VRC; // Valve 1 (VRC-01) readback + open command
+    stRCC_VRC_02 : ST_VRC; // Valve 2 (VRC-02) readback + open command
+    stRCC_VRC_03 : ST_VRC; // Valve 3 (VRC-03) readback + open command
+    stRCC_VRC_04 : ST_VRC; // Valve 4 (VRC-04) readback + open command
+    stRCC_GCP_01 : ST_VG;  // Gauge 1 (GCP-01) pressure readback + xPRESS_OK used by the drain check
+    stRCC_CTL : ST_RCC;    // Command/status block: timings in seconds, start/stop, error, state, log message
 END_VAR
 VAR_OUTPUT
+    q_xRefsValid : BOOL; // TRUE when all six VAR_IN_OUT references were valid on this cycle; FALSE while any is unassigned
 END_VAR
 VAR
     fbRCC : FB_RCC_SM; // RCC STATE MATCHINE
-    fbFormatString : FB_FormatString;
-    TInterval : TIME;
-    T1 : TIME;
-    T2 : TIME;
-    T3 : TIME;
-    T4 : TIME;
+    fbFormatString : FB_FormatString; // Unused: formatted messages are built by FB_RCC_SM
+    TInterval : TIME; // Wait between cycles, converted from stRCC_CTL.TInterval (s)
+    T1 : TIME; // Valve 2 open time, converted from stRCC_CTL.T1 (s)
+    T2 : TIME; // Drain time, converted from stRCC_CTL.T2 (s)
+    T3 : TIME; // Valve 1 open time, converted from stRCC_CTL.T3 (s)
+    T4 : TIME; // Valve 4 open time, converted from stRCC_CTL.T4 (s)
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[// convert int to time to seconds
+      <ST><![CDATA[// Checking the VAR_IN_OUT references, leave the block in case of an invalid
+// reference: an unassigned in-out cannot be rejected by the compiler and must
+// never be dereferenced. Nothing below may run while any reference is invalid,
+// so report the state on q_xRefsValid (stRCC_CTL itself may be the bad one) and
+// leave the state machine and every referenced structure untouched this cycle.
+q_xRefsValid := __ISVALIDREF(stRCC_VRC_01)
+                AND __ISVALIDREF(stRCC_VRC_02)
+                AND __ISVALIDREF(stRCC_VRC_03)
+                AND __ISVALIDREF(stRCC_VRC_04)
+                AND __ISVALIDREF(stRCC_GCP_01)
+                AND __ISVALIDREF(stRCC_CTL);
+
+IF NOT q_xRefsValid THEN
+    RETURN;
+END_IF
+
+// convert int to time to seconds
 TInterval := REAL_TO_TIME(stRCC_CTL.TInterval * 1E3);
 T1 := REAL_TO_TIME(stRCC_CTL.T1 * 1E3);
 T2 := REAL_TO_TIME(stRCC_CTL.T2 * 1E3);
