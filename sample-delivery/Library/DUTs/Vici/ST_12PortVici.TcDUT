@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_12PortVici" Id="{a7e2b97d-f274-40e7-896c-ced4aafb7052}">
+    <Declaration><![CDATA[// Interface structure for a 12 port VICI selector valve (FB_12PortVici).
+// Command and status data of the valve plus the sample name stored at each port.
+TYPE ST_12PortVici :
+STRUCT
+    stValve		: ST_ViciValve;			// Command and status of the 12 port selector valve
+
+    {attribute 'pytmc' := '
+        pv: SampleNames
+        io: io
+     '}
+    stSampleNames	: ST_12ViciValveSampleNames;	// Sample name stored at each port
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>
