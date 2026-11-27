@@ -3,8 +3,8 @@
   <DUT Name="ST_SensirionFM" Id="{a6b8d86f-c2b0-4a79-92ac-31fbf668167c}">
     <Declaration><![CDATA[TYPE ST_SensirionFM :
 STRUCT
-    stCtrl	:	ST_SensirionFMControl;
-    stStat	:	ST_SensirionFMStatus;
+    stCtrl	:	ST_SensirionFMControl; // control interface: calibration mode request, reset request, device address
+    stStat	:	ST_SensirionFMStatus;  // status interface: flow (uL/min), out-of-range, validity, state, mode readback
 
     {attribute 'pytmc' := '
         pv: Reset
@@ -35,7 +35,7 @@ STRUCT
         pv: State
         io: i
      '}
-    eFMState	:	E_SensirionFMMode;
+    eFMState	:	E_SensirionFMMode; // flow state: OK = 0, OverRange = 1, UnderRange = 2, FlowInvalid = 3
 
 
     {attribute 'pytmc' := '
