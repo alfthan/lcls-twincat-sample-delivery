@@ -1,8 +1,104 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
   <POU Name="FB_ALI" Id="{04310620-f9dd-4995-a4e2-9924022b4884}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_ALI
+    <Declaration><![CDATA[(*
+    FB_ALI - Aerodynamic Lens Injector (ALI) device block.
+
+    PURPOSE
+        Owns and runs the complete ALI injector device: the three manipulator
+        axes, the three vacuum gauge channels around the nozzle box, skimmer
+        and relaxation chamber, and the MKS 253 butterfly pressure control
+        valve. All device state lives in the single ST_ALI aggregate the
+        caller passes in, so the block itself holds only the sub-block
+        instances and the hot-plug edge detector.
+
+    USAGE
+        Instantiated once per ALI injector and called unconditionally every
+        PLC cycle, after the EtherCAT terminals have been linked into the
+        aggregate (the ST_ALIIO members are AT %I* / AT %Q* links owned by
+        the calling program):
+
+            fbALI(iq_Injector := <injector>.ali);
+
+        The block has no VAR_INPUT / VAR_OUTPUT: everything is read from and
+        written into iq_Injector, which is also the structure EPICS/VAC
+        exposes. The reference must stay valid for the lifetime of the block
+        (the caller owns the instance; the block never copies it), and the
+        block must be called every cycle because its sub-blocks are state
+        machines.
+
+    OBJECTIVES
+        - Soft-link the three EP3174 analogue channels to the gauge inputs
+          (Ch1 -> nozzle box, Ch2 -> skimmer, Ch3 -> relaxation).
+        - Supervise the two MKS 9XX (925 series) gauges (fb925ALINB1/2) and
+          read the Baratron 722 relaxation-chamber gauge (fb722ALINB3), so
+          every gauge publishes rPRESS in Torr plus a valid PRESS_OK / eState
+          for interlocks and display.
+        - Close the butterfly-valve pressure loop: the skimmer gauge pressure
+          is wired in as the valve process value and the valve is driven
+          through FB_PropValve.
+        - Recover the manipulator axes after a hot plug: a falling edge on
+          iq_Injector.i_SyncUnitWC (EtherCAT sync-unit working counter) means
+          the cluster was unplugged or dropped out, so ftHotPlug pulses
+          i_xHotPlug into all three FB_ManipAxis instances, which reset and
+          re-initialise their axes on the next cycles.
+        - Publish the NC status word (MSTA) of each manipulator axis into its
+          ST_ManipAxis aggregate for EPICS.
+
+    PRECONDITIONS
+        - The EtherCAT cluster (EP7041 / EP5101 / EP3174 / EP2338 / EP4374)
+          is configured and linked into iq_Injector. While the cluster is
+          unplugged or unlinked, i_SyncUnitWC reads FALSE and the axes keep
+          taking the hot-plug reset path, i.e. they stay in Init and do not
+          move.
+        - stRelaxVG.rFULL_SCALE defaults to 10 Torr in ST_ALI; a 722 gauge of
+          a different range must have rFULL_SCALE set on the aggregate, since
+          FB_GCM derives the pressure from that full scale.
+        - The butterfly-valve interlock inputs are tied TRUE inside this block
+          (stPropVlv.xInterlock and i_xExtIlk), so the valve ILK path is
+          inactive here; site interlocks must not rely on that path.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Added this header, the iq_Injector declaration comment and short
+            comments on the private instances; documentation only, no
+            behaviour change (audit finding #457, convention conv_321640e095c0).
+        Earlier author/date history was not recorded in this file. The block
+        came in with the original LCLS sample-delivery ALI code, whose
+        surrounding POUs are dated 2016 (A. Wallace).
+*)
+FUNCTION_BLOCK FB_ALI
 VAR_IN_OUT
+    (* ALI injector device aggregate. ST_ALI extends ST_ALIIO, so this member
+       carries the whole injector: the device state plus the EtherCAT I/O
+       links and the sync-unit working counter. It is read and written in
+       place every cycle:
+
+         axisX / axisY / axisZ : ST_ManipAxis
+             Manipulator axes. Position in mm (rReqAbsPos / rActPos,
+             soft-limited to +/-100 mm), velocity in mm/s (lrVelocity).
+         stNozzleBoxVG : ST_VG
+             MKS 925 gauge at the nozzle box; pressure in Torr (rPRESS,
+             1E-5..760 Torr decadic range) with PRESS_OK / eState validity.
+         stSkimmerVG : ST_VG
+             MKS 925 gauge at the skimmer; pressure in Torr. Also the process
+             value of the butterfly-valve pressure loop.
+         stRelaxVG : ST_VG
+             Baratron 722 gauge in the relaxation chamber; pressure in Torr
+             from rFULL_SCALE (default 10 Torr in ST_ALI) by FB_GCM.
+         stPropVlv : ST_PropValveMKS253
+             MKS 253 butterfly pressure-control valve. Actuator position in
+             deg on its NC axis (lrMaxSpeed in deg/s), percentage-open
+             setpoint / readback in % (0..100), pressure setpoint and
+             readback in Torr.
+         i_EP3174_Ch1..Ch4, i_EP2338_*, q_EP2338_*, i_/q_EP4374_*, and the
+         remaining ST_ALIIO members
+             Raw terminal channels (the AT %I* and AT %Q* links): analogue
+             counts and digital bits, scaled by the gauge and valve blocks
+             above.
+         i_SyncUnitWC : BOOL
+             EtherCAT sync-unit working counter, TRUE while the cluster is
+             alive; its falling edge is the hot plug that resets the axes. *)
     iq_Injector	:	ST_ALI;
 END_VAR
 VAR_INPUT
@@ -10,18 +106,22 @@ END_VAR
 VAR_OUTPUT
 END_VAR
 VAR
+    (* Gauge supervisors: MKS 9XX (925 series) on nozzle box and skimmer,
+       pressure in Torr *)
     fb925ALINB1 : FB_9XX;
     fb925ALINB2 : FB_9XX;
+    (* Baratron 722 relaxation-chamber gauge, pressure in Torr *)
     fb722ALINB3 : FB_GCM;
 
+    (* Manipulator axes X / Y / Z, position in mm *)
     fbManipX	:	FB_ManipAxis;
     fbManipY	:	FB_ManipAxis;
     fbManipZ	:	FB_ManipAxis;
 
-
-
+    (* MKS 253 butterfly pressure-control valve, position in deg *)
     fbPropValve		:	FB_PropValve;
 
+    (* Falling edge of i_SyncUnitWC = cluster was unplugged or lost *)
     ftHotPlug	:	F_TRIG;
 END_VAR
 ]]></Declaration>
