@@ -2,28 +2,60 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_ViciValve" Id="{867cd0ab-cbb3-428d-92e9-f85cb5a24957}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_ViciValve
-(* FB for VICI RS-232 Valave*)
+(*
+    VICI RS-232 multi-position valve.
 
+    Purpose: own the VICI driver and its serial wrapper for one valve and forward a
+    single valve command (a requested port) to the driver.
+    Usage: declare an instance, wire iAddress and iNumOfPorts once, then write the
+    requested port into iReqPos; the driver's done/error/timeout handshake and status
+    are handled inside the block.
+    Objectives: the externally supplied command fields are validated and clamped
+    against the configured port count and the vendor's physical span before they are
+    handed to the driver, so an out-of-range request (zero, negative or larger than
+    the port count) can never be commanded to the hardware unchecked. The port that
+    was actually forwarded is published on q_iReqPos and the clamping is reported on
+    q_xReqPosOutOfRange / q_xAddressOutOfRange.
+    History:
+      2026-11-27 - author: AI agent (task 178) - validate and clamp iReqPos to
+                   1..iNumOfPorts and iAddress to the 1..9 RS-232 span before
+                   commanding hardware.
+*)
 VAR_INPUT
-    iAddress : INT;
-    iNumOfPorts : INT;
-    iReqPos : INT;
+    iAddress : INT;             (* RS-232 address of the valve, valid 1..9 *)
+    iNumOfPorts : INT;          (* number of ports fitted to the valve, valid 1..12 *)
+    iReqPos : INT;              (* requested port, externally supplied, valid 1..iNumOfPorts *)
 END_VAR
 VAR_OUTPUT
+    q_xReqPosOutOfRange : BOOL; (* TRUE while iReqPos is outside 1..iNumOfPorts and is clamped *)
+    q_xAddressOutOfRange : BOOL;(* TRUE while iAddress is outside 1..9 and is clamped *)
+    q_iReqPos : INT;            (* port actually forwarded to the driver after clamping *)
 END_VAR
 VAR
-    fbViciDriver  : FB_ViciDriver;
-    fbViciSerial  : FB_SerialCommWrapper;
-    stViciSerial  : ST_SerialComm;
-    stViciVlvCtrl : ST_ViciControl;
-    stViciVlvStatus : ST_ViciStatus;
+    fbViciDriver  : FB_ViciDriver;          (* serial command/reply driver for the valve *)
+    fbViciSerial  : FB_SerialCommWrapper;   (* serial line wrapper for the valve's COM port *)
+    stViciSerial  : ST_SerialComm;          (* serial port buffers/IO of the COM port *)
+    stViciVlvCtrl : ST_ViciControl;         (* validated command struct handed to the driver *)
+    stViciVlvStatus : ST_ViciStatus;        (* driver status (current/requested port, validity) *)
+    iPortCount : INT;                       (* port count after clamping to the vendor span *)
 
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[stViciVlvCtrl.iReqPos := iReqPos;
-stViciVlvCtrl.iAddress := iAddress;
-stViciVlvCtrl.iPortCount := iNumOfPorts;
+      <ST><![CDATA[(* Validate and clamp the externally supplied command fields before use: the
+   requested port has to be a real port on this valve and the address has to be a
+   single-digit VICI RS-232 address. The hardware is never commanded with an
+   unchecked request. *)
+iPortCount := LIMIT(VICI_MIN_PORT, iNumOfPorts, VICI_MAX_PORT_COUNT);
+
+q_xReqPosOutOfRange := (iReqPos < VICI_MIN_PORT) OR (iReqPos > iPortCount);
+q_iReqPos := LIMIT(VICI_MIN_PORT, iReqPos, iPortCount);
+
+q_xAddressOutOfRange := (iAddress < VICI_MIN_ADDRESS) OR (iAddress > VICI_MAX_ADDRESS);
+
+stViciVlvCtrl.iReqPos := q_iReqPos;
+stViciVlvCtrl.iAddress := LIMIT(VICI_MIN_ADDRESS, iAddress, VICI_MAX_ADDRESS);
+stViciVlvCtrl.iPortCount := iPortCount;
 
 fbViciDriver(
     i_xExecute:= TRUE,

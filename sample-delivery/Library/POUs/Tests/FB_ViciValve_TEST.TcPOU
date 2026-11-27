@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_ViciValve_TEST" Id="{24a58aca-f391-4625-9eb1-09299230763f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ViciValve_TEST EXTENDS FB_TestSuite
+(*
+    TcUnit suite for the VICI valve blocks.
+
+    Purpose: prove that externally supplied VICI command fields are validated and
+    clamped against the configured port count and the vendor RS-232 address span
+    before any hardware command is issued (FB_ViciValve, FB_12PortVici,
+    FB_4PortViciValve).
+    Usage: instantiate under PRG_TEST / the TcUnit test POU and run the suite; the
+    clamp results are combinational, so each case asserts on the first cycle.
+    History:
+      2026-11-27 - author: AI agent (task 178) - created with the clamp cases.
+*)
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[TestViciValveReqPosZeroClampedToFirstPort();
+TestViciValveReqPosAbovePortCountClampedToLastPort();
+TestViciValveReqPosInRangePassedThrough();
+TestViciValveAddressOutsideRs232RangeClampedAndFlagged();
+TestVici12PortWrapperReqPosClampedBeforeValveCall();
+TestVici4PortWrapperReqPosClampedBeforeValveCall();
+]]></ST>
+    </Implementation>
+    <Method Name="TestViciValveReqPosZeroClampedToFirstPort" Id="{6899197b-44b4-4f6d-9633-9982042ee4b0}">
+      <Declaration><![CDATA[METHOD TestViciValveReqPosZeroClampedToFirstPort : REFERENCE TO FB_Test
+VAR
+    fbViciValve : FB_ViciValve;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('ViciValve_ReqPosZero_ClampedToFirstPort');
+
+(* A zero (or negative) request must never reach the hardware: it is clamped to
+   the first port and reported. *)
+fbViciValve(iAddress := 1, iNumOfPorts := 4, iReqPos := 0);
+
+AssertEquals_INT(
+    Expected:= 1,
+    Actual:= fbViciValve.q_iReqPos,
+    Message:= 'zero request was not clamped to port 1');
+
+AssertEquals_BOOL(
+    Expected:= TRUE,
+    Actual:= fbViciValve.q_xReqPosOutOfRange,
+    Message:= 'zero request was not reported out of range');
+
+fbViciValve(iAddress := 1, iNumOfPorts := 4, iReqPos := -3);
+
+AssertEquals_INT(
+    Expected:= 1,
+    Actual:= fbViciValve.q_iReqPos,
+    Message:= 'negative request was not clamped to port 1');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TestViciValveReqPosAbovePortCountClampedToLastPort" Id="{66f4757f-d8a2-4b7e-8c2c-4c815db3d3e0}">
+      <Declaration><![CDATA[METHOD TestViciValveReqPosAbovePortCountClampedToLastPort : REFERENCE TO FB_Test
+VAR
+    fbViciValve : FB_ViciValve;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('ViciValve_ReqPosAbovePortCount_ClampedToLastPort');
+
+(* A request above the configured port count is clamped to the last real port. *)
+fbViciValve(iAddress := 1, iNumOfPorts := 4, iReqPos := 9);
+
+AssertEquals_INT(
+    Expected:= 4,
+    Actual:= fbViciValve.q_iReqPos,
+    Message:= 'request above the port count was not clamped to port 4');
+
+AssertEquals_BOOL(
+    Expected:= TRUE,
+    Actual:= fbViciValve.q_xReqPosOutOfRange,
+    Message:= 'request above the port count was not reported out of range');
+
+(* The 12-port span is the widest supported valve. *)
+fbViciValve(iAddress := 1, iNumOfPorts := 12, iReqPos := 13);
+
+AssertEquals_INT(
+    Expected:= 12,
+    Actual:= fbViciValve.q_iReqPos,
+    Message:= 'request above the 12-port span was not clamped to port 12');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TestViciValveReqPosInRangePassedThrough" Id="{fd7402a9-4a81-4d4c-9f97-9f65147f4798}">
+      <Declaration><![CDATA[METHOD TestViciValveReqPosInRangePassedThrough : REFERENCE TO FB_Test
+VAR
+    fbViciValve : FB_ViciValve;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('ViciValve_ReqPosInRange_PassedThrough');
+
+(* A valid request is forwarded unchanged and not flagged. *)
+fbViciValve(iAddress := 1, iNumOfPorts := 4, iReqPos := 3);
+
+AssertEquals_INT(
+    Expected:= 3,
+    Actual:= fbViciValve.q_iReqPos,
+    Message:= 'valid request was changed');
+
+AssertEquals_BOOL(
+    Expected:= FALSE,
+    Actual:= fbViciValve.q_xReqPosOutOfRange,
+    Message:= 'valid request was reported out of range');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TestViciValveAddressOutsideRs232RangeClampedAndFlagged" Id="{02bc613a-e3fe-4324-8f3a-9d3a33cb24b0}">
+      <Declaration><![CDATA[METHOD TestViciValveAddressOutsideRs232RangeClampedAndFlagged : REFERENCE TO FB_Test
+VAR
+    fbViciValve : FB_ViciValve;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('ViciValve_AddressOutsideRs232Range_ClampedAndFlagged');
+
+(* The VICI address is a single protocol digit, so 0 and 10.. are not addressable. *)
+fbViciValve(iAddress := 0, iNumOfPorts := 12, iReqPos := 5);
+
+AssertEquals_BOOL(
+    Expected:= TRUE,
+    Actual:= fbViciValve.q_xAddressOutOfRange,
+    Message:= 'address 0 was not reported out of range');
+
+fbViciValve(iAddress := 12, iNumOfPorts := 12, iReqPos := 5);
+
+AssertEquals_BOOL(
+    Expected:= TRUE,
+    Actual:= fbViciValve.q_xAddressOutOfRange,
+    Message:= 'address 12 was not reported out of range');
+
+fbViciValve(iAddress := 2, iNumOfPorts := 12, iReqPos := 5);
+
+AssertEquals_BOOL(
+    Expected:= FALSE,
+    Actual:= fbViciValve.q_xAddressOutOfRange,
+    Message:= 'valid address was reported out of range');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TestVici12PortWrapperReqPosClampedBeforeValveCall" Id="{3079938f-bd8e-4cc0-ae31-78682aab8065}">
+      <Declaration><![CDATA[METHOD TestVici12PortWrapperReqPosClampedBeforeValveCall : REFERENCE TO FB_Test
+VAR
+    fbVici12Port : FB_12PortVici;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Vici12Port_ReqPosAbovePortCount_ClampedBeforeValveCall');
+
+(* The wrapper clamps its EPICS-writable request before calling the valve block and
+   writes the accepted value back to the request. *)
+fbVici12Port.iReqPos := 99;
+fbVici12Port(iAddress := 1);
+
+AssertEquals_INT(
+    Expected:= 12,
+    Actual:= fbVici12Port.q_iReqPos,
+    Message:= 'wrapper did not clamp the request to port 12');
+
+AssertEquals_INT(
+    Expected:= 12,
+    Actual:= fbVici12Port.iReqPos,
+    Message:= 'wrapper did not write the accepted request back');
+
+AssertEquals_BOOL(
+    Expected:= TRUE,
+    Actual:= fbVici12Port.q_xReqPosOutOfRange,
+    Message:= 'wrapper did not report the out of range request');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TestVici4PortWrapperReqPosClampedBeforeValveCall" Id="{945d730b-4aae-4c5a-91c3-fc5bcaefb0b5}">
+      <Declaration><![CDATA[METHOD TestVici4PortWrapperReqPosClampedBeforeValveCall : REFERENCE TO FB_Test
+VAR
+    fbVici4Port : FB_4PortViciValve;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Vici4Port_ReqPosZero_ClampedBeforeValveCall');
+
+(* The 4-port wrapper clamps a zero request to port 1 before calling the valve block. *)
+fbVici4Port.iReqPos := 0;
+fbVici4Port(iAdress := 1);
+
+AssertEquals_INT(
+    Expected:= 1,
+    Actual:= fbVici4Port.q_iReqPos,
+    Message:= 'wrapper did not clamp the zero request to port 1');
+
+AssertEquals_INT(
+    Expected:= 1,
+    Actual:= fbVici4Port.iReqPos,
+    Message:= 'wrapper did not write the accepted request back');
+
+AssertEquals_BOOL(
+    Expected:= TRUE,
+    Actual:= fbVici4Port.q_xReqPosOutOfRange,
+    Message:= 'wrapper did not report the out of range request');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

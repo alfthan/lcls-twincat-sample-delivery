@@ -2,20 +2,37 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_4PortViciValve" Id="{35f5328b-2692-4fc5-a1f1-07aefd5e56d3}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_4PortViciValve
+(*
+    4-port VICI RS-232 valve.
+
+    Purpose: wrapper around FB_ViciValve for the 4-port valve model; it owns the
+    EPICS-writable port request and the per-port sample names.
+    Usage: declare an instance and wire iAdress; write the requested port through the
+    iReqPos PV.
+    Objectives: the externally requested port is validated and clamped to the
+    configured 1..iNumPorts span (4 for this model) before it is forwarded to the
+    valve block, and the clamped value is written back to the request PV so the
+    operator sees the port the hardware was actually asked for.
+    History:
+      2026-11-27 - author: AI agent (task 178) - clamp iReqPos to 1..iNumPorts before
+                   calling the valve block.
+*)
 VAR_INPUT
-    iAdress : INT;
+    iAdress : INT;              (* RS-232 address of the valve, valid 1..9 *)
 END_VAR
 VAR_OUTPUT
+    q_xReqPosOutOfRange : BOOL; (* TRUE while the requested port is outside 1..iNumPorts and is clamped *)
+    q_iReqPos : INT;            (* port actually forwarded to the valve block after clamping *)
 END_VAR
 VAR
-    fbNporValve : FB_ViciValve;
-    iNumPorts : INT := 4;
+    fbNporValve : FB_ViciValve; (* valve block that drives the hardware *)
+    iNumPorts : INT := 4;       (* fixed port count of the 4-port valve model *)
 
     {attribute 'pytmc' := '
         pv: iReqPos
         io: io
      '}
-    iReqPos : INT;
+    iReqPos : INT;              (* requested port, EPICS writable, valid 1..iNumPorts *)
     {attribute 'pytmc' := '
         pv: SampleNames
         io: io
@@ -24,7 +41,17 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[fbNporValve(iAddress := iAdress, iNumOfPorts := iNumPorts, iReqPos := iReqPos);]]></ST>
+      <ST><![CDATA[(* Validate and clamp the externally requested port to the configured 1..iNumPorts
+   span before forwarding it to the valve block; the request PV is written back with
+   the accepted value so an out-of-range request can never be commanded unchecked. *)
+q_xReqPosOutOfRange := (iReqPos < VICI_MIN_PORT) OR (iReqPos > iNumPorts);
+iReqPos := LIMIT(VICI_MIN_PORT, iReqPos, iNumPorts);
+q_iReqPos := iReqPos;
+
+fbNporValve(iAddress := iAdress, iNumOfPorts := iNumPorts, iReqPos := iReqPos);
+
+(* Report clamping applied further down (e.g. a bounded address) as well. *)
+q_xReqPosOutOfRange := q_xReqPosOutOfRange OR fbNporValve.q_xReqPosOutOfRange;]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>

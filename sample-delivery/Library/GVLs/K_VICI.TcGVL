@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="K_VICI" Id="{6921ae5e-ba96-4cca-b407-f30d601cbfad}">
+    <Declaration><![CDATA[VAR_GLOBAL CONSTANT
+    (*
+        Named limits shared by the VICI RS-232 valve blocks.
+        Purpose: keep the vendor's physical span in one place so every VICI
+        wrapper/driver boundary validates a requested port and address against
+        the same numbers instead of local literals.
+        History:
+          2026-11-27 - author: AI agent (task 178) - created to enforce the
+                        configured VICI limits on externally supplied commands.
+    *)
+    VICI_MIN_PORT           : INT := 1;     (* Lowest valid port number on any VICI valve *)
+    VICI_MAX_PORT_COUNT     : INT := 12;    (* Largest port count of a supported VICI valve (12-port model) *)
+    VICI_MIN_ADDRESS        : INT := 1;     (* Lowest VICI RS-232 device address *)
+    VICI_MAX_ADDRESS        : INT := 9;     (* Highest VICI RS-232 device address; the protocol carries one address digit *)
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>
