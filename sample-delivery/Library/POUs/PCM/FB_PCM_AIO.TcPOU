@@ -2,20 +2,58 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_PCM_AIO" Id="{798575c7-8eb6-49c5-b85a-70e9fe016a05}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_PCM_AIO
-(* FUNCTION BLOCK FOR PRESSURE CONTROL MODULES WIT ANALOG IO CONTROL WITH 0-10v SIGNAL *)
+(* PRESSURE CONTROL MODULE ANALOG IO BLOCK (0-10v CONTROL AND READBACK SIGNAL)
+
+   USAGE
+   Called once per PLC cycle with iq_stRegProp bound to the regulator's
+   ST_Proportionair interface struct. The block converts the raw 0-10v readback
+   into a pressure in psi, clamps the requested setpoint to the configured
+   window and converts the setpoint back into the raw 0-10v command.
+
+   OBJECTIVES
+   - Never dereference iq_stRegProp before it has been validated: TwinCAT allows
+     a call with an unbound VAR_IN_OUT, and writing through an invalid reference
+     faults the PLC or drives the pressure output to an uncontrolled value.
+   - Latch the invalid-reference fault in q_xError and exit before any member
+     access, so the caller sees the wiring fault instead of losing the block.
+
+   HISTORY
+   2026-11-27 / Scirix Agent
+       Added the __ISVALIDREF guard, the latched q_xError fault and the i_xReset
+       acknowledge path.
+*)
 VAR_INPUT
-    iDEVICE_MAX_PRESSURE : INT := 100; // (psi)
+    iDEVICE_MAX_PRESSURE : INT := 100; // (psi) Full-scale pressure of the regulator
+    i_xReset : BOOL; // Acknowledges a latched q_xError, only honoured with a valid reference
 END_VAR
 VAR_OUTPUT
+    q_xError : BOOL; // Latched fault: TRUE after iq_stRegProp was found to be an invalid reference
 END_VAR
 VAR
-    iTermBits :INT := 32767;
+    iTermBits :INT := 32767; // Raw 0-10v span of the analog terminals (bits)
 END_VAR
 VAR_IN_OUT
     iq_stRegProp	:	ST_Proportionair;
 END_VAR]]></Declaration>
     <Implementation>
-      <ST><![CDATA[iq_stRegProp.iPressure := REAL_TO_INT(iDEVICE_MAX_PRESSURE * (MAX(0,INT_TO_REAL(iq_stRegProp.i_iPressRB)) / iTermBits));
+      <ST><![CDATA[
+// Validate the VAR_IN_OUT reference before any member of it is dereferenced. An
+// unbound reference is permitted in TwinCAT, so dereferencing it would write the
+// pressure command into invalid memory (hard PLC fault or an uncontrolled write
+// to the pressure-control output). Fail safe: latch the fault, expose it to the
+// caller and exit without touching the interface.
+IF NOT __ISVALIDREF(iq_stRegProp) THEN
+    q_xError := TRUE; // Latched until i_xReset is set with a valid reference
+    RETURN;
+END_IF
+
+// The reference is valid, which is the known-safe state: acknowledge the latched
+// fault only on an explicit reset.
+IF i_xReset THEN
+    q_xError := FALSE;
+END_IF
+
+iq_stRegProp.iPressure := REAL_TO_INT(iDEVICE_MAX_PRESSURE * (MAX(0,INT_TO_REAL(iq_stRegProp.i_iPressRB)) / iTermBits));
 iq_stRegProp.iSetpoint := LIMIT(iq_stRegProp.iLoLimit, iq_stRegProp.iSetpoint, iq_stRegProp.iHiLimit);
 iq_stRegProp.q_iPressCt := REAL_TO_INT( (INT_TO_REAL(iq_stRegProp.iSetpoint)/iDEVICE_MAX_PRESSURE)*iTermBits);]]></ST>
     </Implementation>
