@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="GVL_PCM" Id="{15dbf0e3-4fe7-49a1-a42a-ebddfa69b84f}">
+    <Declaration><![CDATA[(* Pressure Control Module (PCM) hardware scaling parameters.
+
+   Usage:      Constant set for the PCM analog-IO scaling. These values are the
+               full-scale pressure range of the proportional-air transducers and
+               are hardware dependent, so they are declared once here and passed
+               to FB_PCM_AIO as named parameters instead of being written as
+               literals in the calling logic.
+
+   Objective:  Recalibrating a transducer, or swapping one for a different range,
+               is a single edit in this GVL and cannot drift out of step with the
+               limit-checked setpoints that FB_PCM_AIO computes from it.
+
+   History:    TAIO agent, 2026-11-27 - created; extracted the full-scale
+               pressure literals out of FB_MPV1 (audit finding #1158).
+*)
+VAR_GLOBAL CONSTANT
+    (* Full-scale pressure of proportional-air channel 01 transducer (psi) *)
+    cMaxPressurePropAir1 : INT := 100;
+    (* Full-scale pressure of proportional-air channel 02 transducer (psi) *)
+    cMaxPressurePropAir2 : INT := 100;
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

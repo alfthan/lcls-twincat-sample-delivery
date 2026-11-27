@@ -3,6 +3,14 @@
   <POU Name="FB_MPV1" Id="{ba3e2f33-c936-4cf9-8e17-0622679aedea}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MPV1
 (* Pressure Control Module 0-10v control and readback signal *)
+//
+// The full-scale pressure of each proportional-air transducer is hardware
+// dependent, so it is not written here as a literal: it comes from the named
+// constants in GVL_PCM (cMaxPressurePropAir1 / cMaxPressurePropAir2) and is
+// passed to FB_PCM_AIO as its iDEVICE_MAX_PRESSURE parameter. Recalibrating or
+// swapping a transducer is then a single edit in GVL_PCM.
+// TAIO agent, 2026-11-27: pass GVL_PCM constants instead of the literal 100
+// (audit finding #1158).
 VAR_INPUT
 END_VAR
 VAR_OUTPUT
@@ -22,8 +30,8 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[PropAir1(iq_stRegProp:=stPropAir1, iDEVICE_MAX_PRESSURE := 100);
-PropAir1(iq_stRegProp:=stPropAir1, iDEVICE_MAX_PRESSURE := 100);]]></ST>
+      <ST><![CDATA[PropAir1(iq_stRegProp:=stPropAir1, iDEVICE_MAX_PRESSURE := GVL_PCM.cMaxPressurePropAir1);
+PropAir2(iq_stRegProp:=stPropAir2, iDEVICE_MAX_PRESSURE := GVL_PCM.cMaxPressurePropAir2);]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>
