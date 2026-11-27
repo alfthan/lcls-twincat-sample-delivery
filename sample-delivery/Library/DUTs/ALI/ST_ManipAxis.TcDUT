@@ -12,20 +12,66 @@ xStart	:	BOOL;
 xStop	:	BOOL;
 wMode	:	E_AxisMoveMode;
 //EPICS motor status
+{attribute 'pytmc' := '
+    pv: MSTA
+    io: i
+    field: DESC EPICS pseudo motor status word (bit0 enabled, bit1 error)
+'}
 uiMsta	:	UINT;
 //EPICS Position readback
+{attribute 'pytmc' := '
+    pv: ActPos
+    io: i
+    field: EGU mm
+    field: DESC Position readback
+'}
 rActPos	:	REAL;
 //Axis enabled readback
 xEnabled	:	BOOL;
 //EPICS High Limit Switch (NO)
+{attribute 'pytmc' := '
+    pv: HLS
+    io: i
+    field: ZNAM FALSE
+    field: ONAM TRUE
+    field: DESC High limit switch (normally open field input, inverted for display)
+'}
 xHLS	:	BOOL;
 //EPICS Low Limit Switch (NO)
+{attribute 'pytmc' := '
+    pv: LLS
+    io: i
+    field: ZNAM FALSE
+    field: ONAM TRUE
+    field: DESC Low limit switch (normally open field input, inverted for display)
+'}
 xLLS	:	BOOL;
 //EPICS MOVN
+{attribute 'pytmc' := '
+    pv: MOVN
+    io: i
+    field: ZNAM Not moving
+    field: ONAM Moving
+    field: DESC Motion in progress
+'}
 xMovn	:	BOOL;
 //EPICS DMOV
+{attribute 'pytmc' := '
+    pv: DMOV
+    io: i
+    field: ZNAM Moving
+    field: ONAM Done
+    field: DESC Motion complete
+'}
 xDmov	:	BOOL;
 //EPICS Reset
+{attribute 'pytmc' := '
+    pv: Reset
+    io: io
+    field: ZNAM FALSE
+    field: ONAM TRUE
+    field: DESC Reset axis faults
+'}
 xReset	:	BOOL;
 
 (* Axis motor *)
