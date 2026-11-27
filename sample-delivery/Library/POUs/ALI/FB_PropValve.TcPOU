@@ -28,7 +28,10 @@ VAR
 
     AnyError: BOOL;
     xReady	:	BOOL;
-    rtReset: R_TRIG;
+    rtReset: R_TRIG; //Rising edge of the acknowledge (stPropValve.xReset) request
+
+    xErrorLatched	:	BOOL; //Latched fault bit, cleared only by an acknowledge
+    xResetRequested	:	BOOL; //Holds MC_Reset.Execute until the block completes
 
     UpperLimit : LREAL := 2000;
 END_VAR
@@ -40,7 +43,7 @@ xInterlock := stPropValve.xInterlock AND i_xExtIlk;
 stPropValve.xEnable R= NOT xInterlock;
 
 
-rtReset(CLK:=stPropValve.xEnable);
+rtReset(CLK:=stPropValve.xReset);
 
 (* The low limit switch was flakey, I added the filters *)
 tofLLSFilter(IN:=stPropValve.i_LLS);
@@ -49,9 +52,38 @@ mcPower.Enable_Positive := tofHLSFilter.Q;
 mcPower.Enable_Negative := tofLLSFilter.Q;
 mcPower.Enable := xInterlock AND stPropValve.xEnable;
 stPropValve.xEnabled := mcPower.Enable;
+
+(* Faults of the previous scan; they are latched just below *)
+AnyError := mcJog.Error OR mcPower.Error OR fbPID.q_Error OR mcSmoothMover.Error;
+
+(* Latch any fault. The latch outlives the faulting condition, so a transient
+   drive or PID error can not dismiss itself. *)
+IF AnyError THEN
+    xErrorLatched := TRUE;
+END_IF
+
+(* The latched fault is cleared only by the explicit acknowledge
+   (stPropValve.xReset) and only from a known-safe state. mcSmoothMover carries
+   its own latch and receives the same acknowledge below, so its Error is
+   deliberately not part of the safe-state test. *)
+IF xErrorLatched AND rtReset.Q AND
+        NOT mcJog.Error AND NOT mcPower.Error AND NOT fbPID.q_Error THEN
+    xErrorLatched := FALSE;
+    xReady := FALSE;
+    eState := E_PropValveFBState.Init;
+END_IF
+
+(* The acknowledge also resets the drive; the request is held until MC_Reset
+   reports completion further down. *)
+IF rtReset.Q THEN
+    xResetRequested := TRUE;
+END_IF
+
+q_xError := xErrorLatched;
+
 (* Move the valve *)
 
-IF AnyError THEN
+IF xErrorLatched THEN
     eState := E_PropValveFBState.Error;
     stPropValve.ePVCtrlStateReq := HMI_PropValveCtrlState.Hold;
 ELSIF xReady THEN
@@ -119,12 +151,20 @@ fbPID(i_lrSetpoint := REAL_TO_LREAL(stPropValve.i_rPressSP),
 
 //MC blocks
 mcPower(Axis:=stPropValve.stAxis);
-mcReset(Axis:=stPropValve.stAxis);
 mcJog(Axis:=stPropValve.stAxis, Mode:=E_JogMode.MC_JOGMODE_CONTINOUS);
 mcSmoothMover(Axis:=stPropValve.stAxis,
-        Velocity:=stPropValve.lrMaxSpeed);
+        Velocity:=stPropValve.lrMaxSpeed,
+        Acknowledge:=stPropValve.xReset);
 
-AnyError := mcJog.Error OR mcPower.Error OR fbPID.q_Error OR mcSmoothMover.Error;
+(* Acknowledge path: MC_Reset.Execute is held until the block reports Done or
+   Error, then the acknowledge request is consumed. *)
+mcReset.Execute := xResetRequested;
+mcReset(Axis:=stPropValve.stAxis);
+IF mcReset.Done OR mcReset.Error THEN
+    mcReset.Execute := FALSE;
+    xResetRequested := FALSE;
+    stPropValve.xReset := FALSE;
+END_IF
 
 (* EPICS display of perc open *)
 stPropValve.q_iPercOpen := LREAL_TO_INT(100*stPropValve.stAxis.NcToPlc.ActPos / UpperLimit);

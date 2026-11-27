@@ -34,6 +34,9 @@ VAR
     rReqAbsPosOld: REAL := 0;
     rReqAbsPosPrevious: REAL;
     iI: INT;
+
+    rtAck	:	R_TRIG; //Rising edge of the acknowledge (iq_ManipAxis.xReset) request
+    xErrorLatched	:	BOOL; //Latched fault bit, cleared only by an acknowledge
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -42,16 +45,48 @@ Alex Wallace, 2016-8-8
 
 This block works by jumping between two absolute move blocks and buffering
 the motion between them.
+
+Faults are latched. Once q_xError is set the block stays in Error with all motion
+commands de-asserted, and it is only cleared by using iq_ManipAxis.xReset ('EPICS
+Reset') as an explicit acknowledge. The acknowledge is only accepted while the axis
+reports no fault, so motion always restarts from a known-safe state.
 *)
 
 
 rtEnable(CLK:=iq_ManipAxis.xEnable);
 ftEnable(CLK:=iq_ManipAxis.xEnable);
+rtAck(CLK:=iq_ManipAxis.xReset);
 
 //Update status
 iq_ManipAxis.stAxis();
 
-IF rtEnable.Q OR ftEnable.Q THEN
+(* Latch any motion fault. The latch outlives the faulting condition, so a
+   transient drive error can not dismiss itself. *)
+IF mcPower.Error OR mcHalt.Error OR mcSmoothMover.Error OR
+        iq_ManipAxis.stAxis.Status.Error THEN
+    xErrorLatched := TRUE;
+END_IF
+
+(* Acknowledge the latched fault, but only from a confirmed safe state. The
+   smooth mover carries its own latch and receives the same acknowledge below,
+   so its (latched) Error is deliberately not part of the safe-state test. *)
+IF xErrorLatched AND rtAck.Q AND
+        NOT mcPower.Error AND NOT mcHalt.Error AND
+        NOT iq_ManipAxis.stAxis.Status.Error THEN
+    xErrorLatched := FALSE;
+    xInitComplete := FALSE; //re-initialise the axis before moving again
+    iq_ManipAxis.eState := Init;
+END_IF
+
+q_xError := xErrorLatched;
+
+IF xErrorLatched THEN
+    //Hold the fault: nothing is commanded while it is latched
+    mcSmoothMover.Enable := FALSE;
+    mcSmoothMover.Execute := FALSE;
+    iq_ManipAxis.xStart := FALSE;
+    iq_ManipAxis.eState := Error;
+ELSIF rtEnable.Q OR ftEnable.Q THEN
     xInitComplete := FALSE;
     iq_ManipAxis.eState := Init;
 ELSIF xInitComplete THEN
@@ -107,17 +142,12 @@ IF mcReset.Done THEN
     iq_ManipAxis.xReset := FALSE;
     iq_ManipAxis.eState:=Init;
 END_IF
-//Set function block state once axis is happy again
-IF NOT iq_ManipAxis.stAxis.Status.Error THEN
-    q_xError := FALSE;
-END_IF
-
-
 (* Run the mc blocks *)
 ActPower();
 mcReset(Axis:=iq_ManipAxis.stAxis);
 mcSmoothMover(Axis:=iq_ManipAxis.stAxis,
-    Velocity:=iq_ManipAxis.lrVelocity);
+    Velocity:=iq_ManipAxis.lrVelocity,
+    Acknowledge:=iq_ManipAxis.xReset);
 mcHalt(Axis:=iq_ManipAxis.stAxis);
 
 iq_ManipAxis.xDmov := mcHalt.Done OR mcSmoothMover.Done;
@@ -484,6 +514,7 @@ iq_ManipAxis.xLLS := NOT iq_ManipAxis.xLoLS;]]></ST>
 IF indexResult > 20 THEN indexResult := 1; END_IF
 
 iq_ManipAxis.eState := Error;
+xErrorLatched := TRUE; //Latch the fault; cleared only by the explicit acknowledge
 q_xError	:=	TRUE;
 q_asResult[indexResult] := fbFormatString.sOut;
 indexResult := indexResult +1;]]></ST>

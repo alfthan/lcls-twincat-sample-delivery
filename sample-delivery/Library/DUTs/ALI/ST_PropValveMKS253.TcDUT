@@ -12,6 +12,8 @@ STRUCT
     xEnable	:	BOOL;
     //EPICS Enable Control;
     xEnabled	:	BOOL;
+    //EPICS fault acknowledge / reset request. Clears the latched valve fault
+    xReset	:	BOOL;
     //Valve interlock
     xInterlock	:	BOOL;
     //PropValve Control State Control

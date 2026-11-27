@@ -10,11 +10,12 @@ VAR_INPUT
     ReqAbsPos : LREAL; //A
     Enable	:	BOOL; //While true the block will accept new positions and attempt to move to them if they are different
     Execute	:	BOOL; //Will retry a move if the target position is the same
+    Acknowledge	:	BOOL; //Level. Clears the latched Error, but only while no MC block reports a fault
 END_VAR
 VAR_OUTPUT
     Done	:	BOOL;
     Busy	:	BOOL;
-    Error	:	BOOL;
+    Error	:	BOOL; //Latched fault. Cleared only by Acknowledge, from a known-safe state
 END_VAR
 VAR
     mcMoveAbsolute : ARRAY[1..2] OF MC_MoveAbsolute;
@@ -22,6 +23,7 @@ VAR
     imcBlockIndex: INT;
     ReqAbsPosPrevious	: LREAL;
     rtExecute: R_TRIG;
+    xErrorLatched	:	BOOL; //Latched fault bit
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -31,12 +33,33 @@ A. Wallace
 
 Enable means the block will always aquire new positions as they are updated. Execute
 can be used to retry a move.
+
+The Error output is latched: it stays TRUE once an MC block reports a fault and is
+cleared only by Acknowledge, and only while no MC block reports a fault. No new move
+is started while the fault is latched.
 *)
 
 
 rtExecute(CLK:=Execute);
 
-IF ( (ReqAbsPos <> ReqAbsPosPrevious AND Enable) OR rtExecute.Q) THEN
+(* Latch any MC block fault so that a transient drive error is not silently
+   forgotten once the MC block clears its own error bit. *)
+IF mcMoveAbsolute[1].Error OR mcMoveAbsolute[2].Error THEN
+    xErrorLatched := TRUE;
+END_IF
+
+(* Only an explicit acknowledge taken from a known-safe state (no MC block
+   reports a fault) clears the latch. *)
+IF xErrorLatched AND Acknowledge AND
+        NOT mcMoveAbsolute[1].Error AND NOT mcMoveAbsolute[2].Error THEN
+    xErrorLatched := FALSE;
+END_IF
+
+Error := xErrorLatched;
+
+(* No new move is started while a fault is latched. *)
+IF NOT xErrorLatched AND
+        ( (ReqAbsPos <> ReqAbsPosPrevious AND Enable) OR rtExecute.Q ) THEN
             mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
             imcBlockIndex := imcBlockIndex + 1;
             IF imcBlockIndex >2 THEN imcBlockIndex := 1; END_IF
@@ -54,7 +77,6 @@ FOR iI := 1 TO 2 DO
     mcMoveAbsolute[iI](Axis := Axis, Velocity:=Velocity, BufferMode:=MC_Aborting);
 END_FOR
 
-Error := mcMoveAbsolute[1].Error OR mcMoveAbsolute[2].Error;
 Done S= mcMoveAbsolute[1].Done OR mcMoveAbsolute[2].Done;
 Busy := mcMoveAbsolute[1].Busy OR mcMoveAbsolute[2].Busy;
 Done R= Busy OR Error;]]></ST>

@@ -69,13 +69,26 @@ VAR
     viciIndex: INT := 1;
     fmIndex: INT := 1;
 
+    rtClearError	:	R_TRIG; //Rising edge of the acknowledge request
+    xDriverFault	:	BOOL; //True when the addressed driver reports error or timeout
+
     //stComIn_EP6002P1		AT %I*	:	EL6inData22B (*KL6inData22B*);
     //stComOut_EP6002P1		AT %Q*	:	EL6outData22B (*KL6outData22B*);
 
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[//Flowmeters
+      <ST><![CDATA[(* Explicit acknowledge of the latched serial fault. It is a deliberate operator
+   action taken while the block is stopped, which is the known-safe state. While
+   the fault is latched the driver actions below hold their execute inputs low, so
+   clearing the latch here also re-arms them with a fresh rising edge. *)
+rtClearError(CLK:= stSelector.xClearError);
+IF stSelector.xClearError AND rtClearError.Q THEN
+    stSelector.xError := FALSE;
+    stSelector.xClearError := FALSE;
+END_IF
+
+//Flowmeters
 //////////////////////////////////////
 Sensirion();
 //Bronkhorst();
@@ -106,36 +119,51 @@ astSelFM[fmIndex].stCtrl.xReset := astSelFM[fmIndex].xFMReset;
 astSelFM[fmIndex].stCtrl.xCalMode := astSelFM[fmIndex].xFMModeReq;
 astSelFM[fmIndex].stCtrl.bAdr := INT_TO_BYTE(fmIndex-1);
 
-afbSensirionDriver[fmIndex](
-    i_xExecute:= TRUE,
-    i_tTimeOut:= t#1s,
-    iq_stSerialRXBuffer:= stSensSerial.RxBuffer,
-    iq_stSerialTXBuffer:= stSensSerial.TxBuffer,
-    q_stStatus=>astSelFM[fmIndex].stStat,
-    i_stControl:=astSelFM[fmIndex].stCtrl);
-
-IF afbSensirionDriver[fmIndex].q_xDone OR
-    afbSensirionDriver[fmIndex].q_xError OR
-    afbSensirionDriver[fmIndex].q_xTimeout THEN
-
-    astSelFM[fmIndex].rFlow := astSelFM[fmIndex].stStat.rFlow;
-    astSelFM[fmIndex].xFMOoR := astSelFM[fmIndex].stStat.xOoR;
-    astSelFM[fmIndex].xFlowValid := astSelFM[fmIndex].stStat.xFlowValid;
-    astSelFM[fmIndex].eFMState := astSelFM[fmIndex].stStat.iState;
-    astSelFM[fmIndex].xFMModeRb := astSelFM[fmIndex].stStat.xFMMode;
-
-    //M3 flows
-    IF fmIndex = 1 THEN
-        stSelector.rLowFlow := astSelFM[fmIndex].stStat.rFlow;
-    ELSIF fmIndex = 2 THEN
-        stSelector.rHighFlow := astSelFM[fmIndex].stStat.rFlow;
-    END_IF
-
-    (* reset function for next time *)
+(* A latched fault blocks further commands until it is acknowledged *)
+IF stSelector.xError THEN
     afbSensirionDriver[fmIndex].Reset();
+ELSE
+    afbSensirionDriver[fmIndex](
+        i_xExecute:= TRUE,
+        i_tTimeOut:= t#1s,
+        iq_stSerialRXBuffer:= stSensSerial.RxBuffer,
+        iq_stSerialTXBuffer:= stSensSerial.TxBuffer,
+        q_stStatus=>astSelFM[fmIndex].stStat,
+        i_stControl:=astSelFM[fmIndex].stCtrl);
 
-    fmIndex := fmIndex + 1;
-    IF fmIndex > 1 THEN fmIndex := 1;	END_IF
+    IF afbSensirionDriver[fmIndex].q_xDone OR
+        afbSensirionDriver[fmIndex].q_xError OR
+        afbSensirionDriver[fmIndex].q_xTimeout THEN
+
+        astSelFM[fmIndex].rFlow := astSelFM[fmIndex].stStat.rFlow;
+        astSelFM[fmIndex].xFMOoR := astSelFM[fmIndex].stStat.xOoR;
+        astSelFM[fmIndex].xFlowValid := astSelFM[fmIndex].stStat.xFlowValid;
+        astSelFM[fmIndex].eFMState := astSelFM[fmIndex].stStat.iState;
+        astSelFM[fmIndex].xFMModeRb := astSelFM[fmIndex].stStat.xFMMode;
+
+        //M3 flows
+        IF fmIndex = 1 THEN
+            stSelector.rLowFlow := astSelFM[fmIndex].stStat.rFlow;
+        ELSIF fmIndex = 2 THEN
+            stSelector.rHighFlow := astSelFM[fmIndex].stStat.rFlow;
+        END_IF
+
+        (* Capture the fault before the driver is reset for the next transaction *)
+        xDriverFault := afbSensirionDriver[fmIndex].q_xError OR
+            afbSensirionDriver[fmIndex].q_xTimeout;
+
+        (* reset function for next time *)
+        afbSensirionDriver[fmIndex].Reset();
+
+        IF xDriverFault THEN
+            (* Latch the fault and stop issuing commands; only the explicit
+               acknowledge stSelector.xClearError clears it. *)
+            stSelector.xError := TRUE;
+        ELSE
+            fmIndex := fmIndex + 1;
+            IF fmIndex > 1 THEN fmIndex := 1;END_IF
+        END_IF
+    END_IF
 END_IF
 
 ]]></ST>
@@ -152,25 +180,40 @@ fbViciSerial(stSerialComm := stViciSerial);]]></ST>
       <Implementation>
         <ST><![CDATA[stSelector.astViciVlvCtrl[viciIndex].iAddress := viciIndex;
 
-afbViciDriver[viciIndex](
-    i_xExecute:= TRUE,
-    i_tTimeOut:= t#10s,
-    i_stControl:= stSelector.astViciVlvCtrl[viciIndex],
-    iq_stSerialRXBuffer:= stViciSerial.RxBuffer,
-    iq_stSerialTXBuffer:= stViciSerial.TxBuffer,
-    q_stStatus=>stSelector.astViciVlvStatus[viciIndex]);
-
-IF 	afbViciDriver[viciIndex].q_xDone OR
-    afbViciDriver[viciIndex].q_xError OR
-    afbViciDriver[viciIndex].q_xTimeout THEN
-    (* reset function for next time *)
+(* A latched fault blocks further commands until it is acknowledged *)
+IF stSelector.xError THEN
     afbViciDriver[viciIndex](i_xExecute:=FALSE,
         iq_stSerialRXBuffer:= stViciSerial.RxBuffer,
         iq_stSerialTXBuffer:= stViciSerial.TxBuffer);
+ELSE
+    afbViciDriver[viciIndex](
+        i_xExecute:= TRUE,
+        i_tTimeOut:= t#10s,
+        i_stControl:= stSelector.astViciVlvCtrl[viciIndex],
+        iq_stSerialRXBuffer:= stViciSerial.RxBuffer,
+        iq_stSerialTXBuffer:= stViciSerial.TxBuffer,
+        q_stStatus=>stSelector.astViciVlvStatus[viciIndex]);
 
-    viciIndex := viciIndex + 1;
-    IF viciIndex > 2 THEN viciIndex := 1; END_IF
+    (* Capture the fault before the driver is reset for the next transaction *)
+    xDriverFault := afbViciDriver[viciIndex].q_xError OR
+        afbViciDriver[viciIndex].q_xTimeout;
 
+    IF xDriverFault OR afbViciDriver[viciIndex].q_xDone THEN
+        (* reset function for next time *)
+        afbViciDriver[viciIndex](i_xExecute:=FALSE,
+            iq_stSerialRXBuffer:= stViciSerial.RxBuffer,
+            iq_stSerialTXBuffer:= stViciSerial.TxBuffer);
+    END_IF
+
+    IF xDriverFault THEN
+        (* Latch the valve driver error/timeout and stop commanding the valves.
+           It is exposed through stSelector.xError and cleared only by the
+           explicit acknowledge stSelector.xClearError. *)
+        stSelector.xError := TRUE;
+    ELSIF afbViciDriver[viciIndex].q_xDone THEN
+        viciIndex := viciIndex + 1;
+        IF viciIndex > 2 THEN viciIndex := 1; END_IF
+    END_IF
 END_IF]]></ST>
       </Implementation>
     </Action>

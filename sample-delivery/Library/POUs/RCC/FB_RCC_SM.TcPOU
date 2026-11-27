@@ -61,7 +61,9 @@ RCC_VRC_04_OPEN_OK := ( stRCC_VRC_02.i_xClsLS AND NOT stRCC_VRC_02.q_xOPN_DO ) A
                                       ( stRCC_VRC_03.i_xClsLS AND NOT stRCC_VRC_03.q_xOPN_DO ) ;
 
 
-IF bStop THEN
+(* A stop request returns a running cycle to a safe, stopped condition, but it
+   must never clear a latched fault. Only bClearError leaves the ERROR state. *)
+IF bStop AND eCurrentState <> E_RCC_STATES.ERROR THEN
     eCurrentState:= E_RCC_STATES.INIT;
     bStartCycle := FALSE;
 END_IF
@@ -73,7 +75,13 @@ END_IF
         stRCC_VRC_02.pv_xOPN_SW := FALSE;
         stRCC_VRC_03.pv_xOPN_SW := FALSE;
         stRCC_VRC_04.pv_xOPN_SW := FALSE;
+        (* A start request is not queued across the fault; a new cycle needs a
+           fresh bStartCycle after the fault has been acknowledged. *)
+        bStartCycle := FALSE;
 
+        (* The fault stays latched, and the sequence stays in ERROR, until the
+           dedicated acknowledge bClearError is used. All valves are closed in
+           this state, so the acknowledge is only offered from a safe state. *)
         IF bClearError THEN
             eCurrentState := E_RCC_STATES.IDLE;
             bError := FALSE;
@@ -83,7 +91,8 @@ END_IF
     E_RCC_STATES.IDLE: // -1
         sLogMessage := 'IDLE';
         bRunning := FALSE;
-        IF bStartCycle THEN
+        (* A latched fault blocks new cycles until it is acknowledged *)
+        IF bStartCycle AND NOT bError THEN
             tTimer1(IN:=FALSE); // RESTART TIMER
             eCurrentState := E_RCC_STATES.INIT;
             bRunning := TRUE;

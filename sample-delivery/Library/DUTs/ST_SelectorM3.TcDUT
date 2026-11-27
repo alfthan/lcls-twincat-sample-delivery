@@ -69,6 +69,20 @@ STRUCT
      '}
     rHighFlow	:	REAL; //Sensirion Sheath liquid flowrate
 
+    (* Latched serial device fault. Set when either Vici or Sensirion driver
+       reports an error or timeout; cleared only by the explicit acknowledge
+       xClearError, from a stopped (idle) state. *)
+    {attribute 'pytmc' := '
+        pv: SerialError
+        io: i
+     '}
+    xError	:	BOOL;
+    {attribute 'pytmc' := '
+        pv: SerialClearError
+        io: io
+     '}
+    xClearError	:	BOOL; // explicit acknowledge of the latched xError
+
     // Sample Names
     {attribute 'pytmc' := '
         pv: SampleNames

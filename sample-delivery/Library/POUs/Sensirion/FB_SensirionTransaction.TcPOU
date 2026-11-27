@@ -13,6 +13,7 @@ VAR_INPUT
     i_bLen					:	BYTE;	//Length of transmission
     i_abTxData				:	ARRAY[1..256] OF BYTE; //Transmission
     i_tTimeOut				:	TIME := T#10S;  	(* Maximum wait time for reply *)
+    i_xAcknowledge			:	BOOL;				(* Level. Clears the latched q_xError/q_xTimeout; only honoured outside a live transaction *)
 END_VAR
 VAR_OUTPUT
     q_xDone					: BOOL;
@@ -61,16 +62,30 @@ END_VAR
     <Implementation>
       <ST><![CDATA[(* This function block performs serial transactions for the SHDCLC (Sensirion) Interface  *)
 (* Note the SHDLC transaction uses bytes and not strings *)
+(* q_xError and q_xTimeout are latched: they are cleared only by i_xAcknowledge, and
+   a new i_xExecute rising edge is refused while either of them is set. *)
 
 (* rising edge trigger *)
 rtExecute(CLK:= i_xExecute);
-IF rtExecute.Q THEN
+
+(* Latched fault acknowledge. A latched error/timeout is cleared only by this
+   explicit acknowledge, and only while the block is idle or already faulted, so
+   the acknowledge can never abort a transaction that is in flight. *)
+IF i_xAcknowledge AND (iStep = 0 OR iStep = 9000) THEN
+    q_xError := FALSE;
+    q_xTimeout := FALSE;
+    q_xDone := FALSE;
+    q_bState := 16#00;
+    iStep := 0;
+END_IF
+
+(* A new command is refused while a fault is latched; the caller has to
+   acknowledge the fault first. *)
+IF rtExecute.Q AND NOT q_xError AND NOT q_xTimeout THEN
     q_xDone	:= FALSE;
     //Clear the Tx and Rx buffer
     MEMSET(destAddr:=ADR(baRxData), fillByte:=16#00, n:=SIZEOF(baRxData));
     MEMSET(destAddr:=ADR(baTxData), fillByte:=16#00, n:=SIZEOF(baTxData));
-    q_xError := FALSE;
-    q_xTimeout := FALSE;
     q_sResult:= '';
     //MEMSET(destAddr:=ADR(q_abLastTxData[iDataTx,1]), fillByte:=16#00, n:=c_ArraySize);
     //MEMSET(destAddr:=ADR(q_abLastTxData[iDataRx,1]), fillByte:=16#00, n:=c_ArraySize);
