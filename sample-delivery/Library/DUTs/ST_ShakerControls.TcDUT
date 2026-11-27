@@ -1,16 +1,95 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.0.24">
   <DUT Name="ST_ShakerControls" Id="{9cbbc00e-43f1-4085-876b-85a268f5e488}">
-    <Declaration><![CDATA[TYPE ST_ShakerControls :
+    <Declaration><![CDATA[(*
+    Purpose : Command structure for an array of shaker (vibration) drives in the
+              sample-delivery system: one BOOL command bit per shaker channel,
+              xShaker1On..xShaker8On for shakers 1..8.
+
+    Usage   : Library DUT for the command set of a shaker-array device block -
+              the block that owns the array embeds or references it as its
+              interface struct and copies each bit to the digital output of the
+              corresponding shaker. As of this revision nothing instantiates
+              it: no POU, no GVL, no machine deployment and no generated TMC
+              (Library.tmc) references ST_ShakerControls, so no member is bound
+              to a physical output and no device block owns it yet. The shaker
+              outputs that are actually wired in the deployments use ST_Shaker
+              instead - four per M3 selector on "M3 Selector x Digital IO
+              (EP2338-1001)" channels 9..12, serviced by FB_SelectorM3 and
+              linked in GVL_SDS.
+
+    Objectives: - one named command bit per shaker, so an array block can drive
+                  up to eight channels without positional indexing;
+                - make the polarity explicit, so TRUE is never mistaken for a
+                  readback or for an interlock permissive.
+
+    Polarity: TRUE = the shaker drive is commanded on, FALSE = off (de-energized
+              and safe). Nothing in this type is inverted and no member is a
+              readback: all eight are commands only.
+
+    Units   : none - all eight members are BOOL. Once a member is bound to a
+              field output it means "24 V present on that digital-output
+              channel"; as declared here no member carries a %Q* terminal
+              address and none carries a pytmc pragma, so nothing reaches EPICS
+              through this type.
+
+    History : 2023-05-19 J. Zamudio - type added with the initial commit
+              (746deac), no member documented.
+              2025-05-29 J. Zamudio - moved to Library/DUTs in the project
+              restructure (9b2fb2c), contents unchanged.
+              2026-11-27 Scirix Agent - added this header and one comment per
+              member (audit finding 440); no member or type changed.
+*)
+TYPE ST_ShakerControls :
 STRUCT
 
+// Shaker 1 drive command - shaker 1 of the array.
+// TRUE = shaker 1 commanded on (24 V on the digital-output channel it
+// would be bound to), FALSE = off / de-energized. Boolean, no unit.
+// Not bound to a field device today: no %Q* terminal, no pytmc pragma
+// and no consumer - see the type header above.
 xShaker1On	:	BOOL;
+// Shaker 2 drive command - shaker 2 of the array.
+// TRUE = shaker 2 commanded on (24 V on the digital-output channel it
+// would be bound to), FALSE = off / de-energized. Boolean, no unit.
+// Not bound to a field device today: no %Q* terminal, no pytmc pragma
+// and no consumer - see the type header above.
 xShaker2On	:	BOOL;
+// Shaker 3 drive command - shaker 3 of the array.
+// TRUE = shaker 3 commanded on (24 V on the digital-output channel it
+// would be bound to), FALSE = off / de-energized. Boolean, no unit.
+// Not bound to a field device today: no %Q* terminal, no pytmc pragma
+// and no consumer - see the type header above.
 xShaker3On	:	BOOL;
+// Shaker 4 drive command - shaker 4 of the array.
+// TRUE = shaker 4 commanded on (24 V on the digital-output channel it
+// would be bound to), FALSE = off / de-energized. Boolean, no unit.
+// Not bound to a field device today: no %Q* terminal, no pytmc pragma
+// and no consumer - see the type header above.
 xShaker4On	:	BOOL;
+// Shaker 5 drive command - shaker 5 of the array.
+// TRUE = shaker 5 commanded on (24 V on the digital-output channel it
+// would be bound to), FALSE = off / de-energized. Boolean, no unit.
+// Not bound to a field device today: no %Q* terminal, no pytmc pragma
+// and no consumer - see the type header above.
 xShaker5On	:	BOOL;
+// Shaker 6 drive command - shaker 6 of the array.
+// TRUE = shaker 6 commanded on (24 V on the digital-output channel it
+// would be bound to), FALSE = off / de-energized. Boolean, no unit.
+// Not bound to a field device today: no %Q* terminal, no pytmc pragma
+// and no consumer - see the type header above.
 xShaker6On	:	BOOL;
+// Shaker 7 drive command - shaker 7 of the array.
+// TRUE = shaker 7 commanded on (24 V on the digital-output channel it
+// would be bound to), FALSE = off / de-energized. Boolean, no unit.
+// Not bound to a field device today: no %Q* terminal, no pytmc pragma
+// and no consumer - see the type header above.
 xShaker7On	:	BOOL;
+// Shaker 8 drive command - shaker 8 of the array.
+// TRUE = shaker 8 commanded on (24 V on the digital-output channel it
+// would be bound to), FALSE = off / de-energized. Boolean, no unit.
+// Not bound to a field device today: no %Q* terminal, no pytmc pragma
+// and no consumer - see the type header above.
 xShaker8On	:	BOOL;
 
 END_STRUCT
