@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_SanitizedAnalogIn" Id="{0f1c9ad4-6c6e-4a2f-9a0e-3c1f0d6a7b21}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SanitizedAnalogIn
+(*
+Sanitizing stage for one externally sourced numeric value.
+
+Purpose:
+    Every value that is read from outside the PLC program (EPICS links, EtherCAT
+    PDOs and analog terminals, serial device replies, cross-PLC reads) has to be
+    routed through this block before any logic consumes it. A corrupt, non
+    numeric or out of span reading can then never be presented to the rest of the
+    program as a plausible trusted value.
+
+Behaviour, evaluated once per call:
+    - A finite value inside [i_rMin, i_rMax] is trusted: it is published on
+      q_rValue, stored as the last trusted value and q_xValid is TRUE.
+    - NaN can never satisfy the ordered comparisons used below, so it is
+      rejected with q_xNotFinite and q_xValid FALSE. +/-Inf falls outside the
+      span and is rejected through q_xOutOfRange.
+    - A finite value outside the span sets q_xOutOfRange and q_xValid FALSE.
+      With i_xClamp TRUE the published value is clamped into the span (a request
+      that is merely too large is made safe); with i_xClamp FALSE the last
+      trusted value is held instead (a position readback outside the travel must
+      never be clamped into a plausible position).
+    - When the source itself reports a failed read (i_xReadOk FALSE), or when no
+      usable span is configured (i_rMin >= i_rMax), the last trusted value is
+      held and q_xValid is FALSE.
+    - q_xWarning follows the current cycle (clamped, out of span or failed read).
+    - q_xError latches once the input has been invalid for tErrorDelay. It clears
+      on the rising edge of i_xReset while the input is good again, or
+      automatically after the input has been continuously good for tErrorDelay,
+      so a transient glitch stays a warning while a real failure stays visible.
+    - q_xNoTrusted is TRUE until the first trusted value has been seen; q_rValue
+      is then the safe default 0.
+
+Usage:
+    fbActPos : FB_SanitizedAnalogIn;
+    fbActPos(
+        i_rRawValue := <raw external value>,
+        i_rMin := <lower end of the physical span>,
+        i_rMax := <upper end of the physical span>);
+    IF fbActPos.q_xValid THEN
+        // use fbActPos.q_rValue and fbActPos.q_xValid, never the raw value
+    END_IF
+
+History:
+    2026-11-27  Created for the external input sanitizing audit findings
+                (#1157, #1161, #1168, #1175, #501, #1179).
+*)
+VAR_INPUT
+    i_rRawValue : LREAL;                    // raw value as read from the external source
+    i_xReadOk : BOOL := TRUE;               // FALSE when the source reports a failed read
+    i_rMin : LREAL := -1.0E30;              // lower end of the plausible span (no span when left at default)
+    i_rMax : LREAL := 1.0E30;               // upper end of the plausible span (no span when left at default)
+    i_xClamp : BOOL := FALSE;               // TRUE: clamp an out of span value, FALSE: hold the last trusted value
+    i_xReset : BOOL;                        // rising edge clears the latched error while the input is good
+    sName : STRING(255) := 'AnalogIn';      // instance name, used to make faults identifiable
+END_VAR
+VAR_OUTPUT
+    {attribute 'pytmc' := '
+        pv: Value
+        io: i
+    '}
+    q_rValue : LREAL;                       // sanitized value: the raw value when valid, otherwise clamped or held
+    {attribute 'pytmc' := '
+        pv: Valid
+        io: i
+        field: ZNAM INVALID
+        field: ONAM VALID
+    '}
+    q_xValid : BOOL;                        // TRUE when the published value may be trusted this cycle
+    {attribute 'pytmc' := '
+        pv: Warning
+        io: i
+    '}
+    q_xWarning : BOOL;                      // value was clamped, out of span or the read failed this cycle
+    {attribute 'pytmc' := '
+        pv: Error
+        io: i
+    '}
+    q_xError : BOOL;                        // latched: the input stayed invalid for tErrorDelay
+    q_xNotFinite : BOOL;                    // the raw value is NaN (non numeric) this cycle
+    q_xOutOfRange : BOOL;                   // the raw value is finite but outside [i_rMin, i_rMax] this cycle
+    q_xNoTrusted : BOOL;                    // TRUE while no trusted value has been seen yet
+END_VAR
+VAR
+    rLastTrusted : LREAL;                   // last value that passed the sanitizer
+    xHasTrusted : BOOL;                     // TRUE once rLastTrusted holds a real reading
+    xErrorLatched : BOOL;                   // latched invalid input fault
+    xInRange : BOOL;                        // raw value inside the span
+    xAboveMax : BOOL;                       // raw value above the span
+    xBelowMin : BOOL;                       // raw value below the span
+    xSpanValid : BOOL;                      // a usable span is configured
+    xInputGood : BOOL;                      // sanitized verdict for this cycle
+    tonInvalid : TON;                       // measures how long the input has been invalid
+    tonRecovered : TON;                     // measures how long the input has been good again
+    rtReset : R_TRIG;                       // rising edge of the acknowledge input
+END_VAR
+VAR CONSTANT
+    tErrorDelay : TIME := T#1S;             // invalid time before the fault is raised, and good time before it clears again
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* Classify the raw reading.
+   NaN fails every ordered comparison, so a reading that is in range and neither
+   above nor below the span can only be a real number. *)
+xSpanValid := i_rMin < i_rMax;
+xInRange := (i_rRawValue >= i_rMin) AND (i_rRawValue <= i_rMax);
+xAboveMax := i_rRawValue > i_rMax;
+xBelowMin := i_rRawValue < i_rMin;
+q_xNotFinite := NOT (xInRange OR xAboveMax OR xBelowMin);
+q_xOutOfRange := xAboveMax OR xBelowMin;
+xInputGood := i_xReadOk AND xSpanValid AND NOT q_xNotFinite AND NOT q_xOutOfRange;
+
+(* Publish the sanitized value and remember the last trusted one. *)
+IF xInputGood THEN
+    rLastTrusted := i_rRawValue;
+    xHasTrusted := TRUE;
+END_IF
+
+IF xInputGood THEN
+    q_rValue := i_rRawValue;
+ELSIF q_xOutOfRange AND i_xClamp THEN
+    q_rValue := LIMIT(i_rMin, i_rRawValue, i_rMax);
+ELSIF xHasTrusted THEN
+    q_rValue := rLastTrusted;
+ELSE
+    q_rValue := 0.0; (* no trusted value yet *)
+END_IF
+
+q_xNoTrusted := NOT xHasTrusted;
+q_xValid := xInputGood;
+q_xWarning := q_xOutOfRange OR (NOT i_xReadOk) OR (NOT xSpanValid);
+
+(* Latch a sustained invalid input, and only release the latch from good data. *)
+tonInvalid(IN := NOT xInputGood, PT := tErrorDelay);
+tonRecovered(IN := xInputGood, PT := tErrorDelay);
+IF tonInvalid.Q THEN
+    xErrorLatched := TRUE;
+END_IF
+IF tonRecovered.Q THEN
+    xErrorLatched := FALSE;
+END_IF
+rtReset(CLK := i_xReset);
+IF rtReset.Q AND xInputGood THEN
+    xErrorLatched := FALSE;
+END_IF
+q_xError := xErrorLatched;]]></ST>
+    </Implementation>
+    <ObjectProperties />
+  </POU>
+</TcPlcObject>

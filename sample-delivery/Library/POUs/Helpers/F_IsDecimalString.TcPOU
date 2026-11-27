@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="F_IsDecimalString" Id="{5b7c2f10-93da-4c58-8a41-2d6e4b9f0c37}">
+    <Declaration><![CDATA[FUNCTION F_IsDecimalString : BOOL
+(*
+Tests whether a string contains one or more decimal digits and nothing else.
+
+Purpose:
+    Device replies are strings, and STRING_TO_INT silently yields 0 for a field
+    that is not a number. Checking the payload first keeps a malformed serial
+    reply from being converted into a plausible looking number, so it can be
+    rejected (and the last trusted value held) instead.
+
+Returns:
+    TRUE  - the string is not empty and consists only of the characters 0..9.
+    FALSE - the string is empty or contains any other character (sign, decimal
+            point, blanks, letters, ...).
+
+History:
+    2026-11-27  Created for the Vici reply validation (audit finding #1179).
+*)
+VAR_INPUT
+    i_sValue : STRING(255);                 // string to test
+END_VAR
+VAR
+    iIndex : INT;                           // character position being tested
+END_VAR
+VAR CONSTANT
+    sDigits : STRING(10) := '0123456789';   // every character that is a decimal digit
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_IsDecimalString := FALSE;
+IF LEN(i_sValue) = 0 THEN
+    RETURN;
+END_IF
+
+FOR iIndex := 1 TO LEN(i_sValue) DO
+    (* FIND returns 0 for a character that is not in the digit set *)
+    IF FIND(sDigits, MID(i_sValue, 1, iIndex)) = 0 THEN
+        RETURN;
+    END_IF
+END_FOR
+
+F_IsDecimalString := TRUE;]]></ST>
+    </Implementation>
+    <ObjectProperties />
+  </POU>
+</TcPlcObject>
