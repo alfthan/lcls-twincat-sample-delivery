@@ -3,67 +3,72 @@
   <DUT Name="ST_Strings" Id="{732f2c27-82d7-468b-9b70-d5e6f1796e6b}">
     <Declaration><![CDATA[TYPE ST_Strings :
 STRUCT
-    (* Twelve strings used to store sample names *)
-    {attribute 'pytmc' := '
+    (* ST_Strings - operator-entered sample-name labels.
+       One STRING per position of a 12-port selector valve; position N of the
+       array is exposed to EPICS as Prefix:SampleNames:NN (see
+       ST_SelectorM3.stSampleNames). Values are free text: use a short,
+       human-readable sample name and a maximum of 80 characters (TwinCAT
+       STRING default). No unit applies to any member. *)
+     {attribute 'pytmc' := '
         pv: 01
         io: io
      '}
-     s1 : STRING;
+     s1 : STRING; // sample name for selector position 01; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 02
         io: io
      '}
-     s2 : STRING;
+     s2 : STRING; // sample name for selector position 02; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 03
         io: io
      '}
-     s3 : STRING;
+     s3 : STRING; // sample name for selector position 03; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 04
         io: io
      '}
-     s4 : STRING;
+     s4 : STRING; // sample name for selector position 04; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 05
         io: io
      '}
-     s5 : STRING;
+     s5 : STRING; // sample name for selector position 05; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 06
         io: io
      '}
-     s6 : STRING;
+     s6 : STRING; // sample name for selector position 06; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 07
         io: io
      '}
-     s7 : STRING;
+     s7 : STRING; // sample name for selector position 07; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 08
         io: io
      '}
-     s8 : STRING;
+     s8 : STRING; // sample name for selector position 08; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 09
         io: io
      '}
-     s9 : STRING;
+     s9 : STRING; // sample name for selector position 09; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 10
         io: io
      '}
-     s10 : STRING;
+     s10 : STRING; // sample name for selector position 10; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 11
         io: io
      '}
-     s11 : STRING;
+     s11 : STRING; // sample name for selector position 11; free text, no unit, max 80 chars
      {attribute 'pytmc' := '
         pv: 12
         io: io
      '}
-     s12 : STRING;
+     s12 : STRING; // sample name for selector position 12; free text, no unit, max 80 chars
 END_STRUCT
 END_TYPE
 ]]></Declaration>
