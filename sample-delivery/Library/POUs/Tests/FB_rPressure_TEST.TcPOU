@@ -1,0 +1,124 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_rPressure_TEST" Id="{b4faf590-50df-4dac-be22-2573e3f95cd4}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_rPressure_TEST EXTENDS FB_TestSuite
+(*
+    FB_rPressure_TEST
+
+    Unit tests for F_rPressure: raw regulator pressure transducer count (ADC/DAC
+    counts) -> pressure in engineering units, scaled with RegulatorConstants.
+
+    Covered:
+        * zero count maps to zero pressure
+        * full-scale count (K_RAW_FULLSCALE) maps to the rated pressure span
+        * a mid-scale count above the old INT overflow boundary still scales
+          correctly (the previous expression multiplied raw*3000 in the INT domain
+          and overflowed for any count above 10)
+        * a negative count is clamped to zero instead of wrapping the WORD result
+
+    Run through PRG_TEST (TcUnit.RUN() picks up every FB_TestSuite instance).
+
+    History:
+        2026-11-27 : created with the RegulatorConstants conversion change
+*)
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_rPressure_ZeroRawExpectZeroPressure();
+F_rPressure_FullScaleRawExpectRatedSpan();
+F_rPressure_MidScaleRawExpectScaledPressure();
+F_rPressure_NegativeRawExpectZeroPressure();]]></ST>
+    </Implementation>
+    <Method Name="F_rPressure_FullScaleRawExpectRatedSpan" Id="{d22e447d-4f24-4dfd-8c7d-5f9a1dcbac07}">
+      <Declaration><![CDATA[METHOD F_rPressure_FullScaleRawExpectRatedSpan : REFERENCE TO FB_Test
+VAR
+    wPressure : WORD;  // Pressure result under test
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('F_rPressure_FullScaleRawExpectRatedSpan');
+
+// Full-scale transducer count must map to the regulator rated pressure span.
+wPressure := F_rPressure(iRawVoltage := 32767);
+
+AssertEquals_INT(
+    Expected := 3000,
+    Actual := WORD_TO_INT(wPressure),
+    Message := 'FULL SCALE RAW COUNT DID NOT MAP TO THE RATED PRESSURE SPAN');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="F_rPressure_MidScaleRawExpectScaledPressure" Id="{061b35c4-cf96-48c3-bf1b-2dbb0dd00c2a}">
+      <Declaration><![CDATA[METHOD F_rPressure_MidScaleRawExpectScaledPressure : REFERENCE TO FB_Test
+VAR
+    wPressure : WORD;  // Pressure result under test
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('F_rPressure_MidScaleRawExpectScaledPressure');
+
+// The first count above the old INT overflow boundary (raw*3000 > 32767) must
+// still scale correctly: 11 * 3000 / 32767 = 1.
+wPressure := F_rPressure(iRawVoltage := 11);
+AssertEquals_INT(
+    Expected := 1,
+    Actual := WORD_TO_INT(wPressure),
+    Message := 'COUNT ABOVE THE OLD INT OVERFLOW BOUNDARY DID NOT SCALE');
+
+// 1000 * 3000 / 32767 = 91 (integer division).
+wPressure := F_rPressure(iRawVoltage := 1000);
+AssertEquals_INT(
+    Expected := 91,
+    Actual := WORD_TO_INT(wPressure),
+    Message := 'MID SCALE RAW COUNT DID NOT SCALE TO THE EXPECTED PRESSURE');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="F_rPressure_NegativeRawExpectZeroPressure" Id="{64ac9f8e-f12f-484e-bfbc-2d1772419cdb}">
+      <Declaration><![CDATA[METHOD F_rPressure_NegativeRawExpectZeroPressure : REFERENCE TO FB_Test
+VAR
+    wPressure : WORD;  // Pressure result under test
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('F_rPressure_NegativeRawExpectZeroPressure');
+
+// A negative transducer count is clamped to zero rather than wrapping the WORD result.
+wPressure := F_rPressure(iRawVoltage := -100);
+
+AssertEquals_INT(
+    Expected := 0,
+    Actual := WORD_TO_INT(wPressure),
+    Message := 'NEGATIVE RAW COUNT DID NOT CLAMP TO ZERO PRESSURE');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="F_rPressure_ZeroRawExpectZeroPressure" Id="{ce571f9a-6ed0-453d-bcf8-4a36f9e25802}">
+      <Declaration><![CDATA[METHOD F_rPressure_ZeroRawExpectZeroPressure : REFERENCE TO FB_Test
+VAR
+    wPressure : WORD;  // Pressure result under test
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('F_rPressure_ZeroRawExpectZeroPressure');
+
+wPressure := F_rPressure(iRawVoltage := 0);
+
+AssertEquals_INT(
+    Expected := 0,
+    Actual := WORD_TO_INT(wPressure),
+    Message := 'ZERO RAW COUNT DID NOT MAP TO ZERO PRESSURE');
+
+TEST_FINISHED();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

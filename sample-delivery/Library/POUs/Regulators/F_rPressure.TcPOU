@@ -2,16 +2,47 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.0.24">
   <POU Name="F_rPressure" Id="{be680594-3bc8-4d10-9c84-f2a20035e519}">
     <Declaration><![CDATA[FUNCTION F_rPressure : WORD
+(*
+    F_rPressure
+
+    Converts a raw regulator pressure transducer reading (ADC/DAC count) into the
+    matching pressure in engineering units.
+
+    Usage:
+        wPressure := F_rPressure(iRawVoltage := stRegulator.i_iRawInPress);
+
+    Conversion:
+        pressure = raw * RegulatorConstants.K_PRESS_SPAN_REGULATOR
+                       / RegulatorConstants.K_RAW_FULLSCALE
+
+        The product is evaluated in DINT. The previous expression
+        INT_TO_WORD((iRawVoltage*3000)/32767) multiplied in the INT domain, so any
+        raw count above 10 overflowed and silently produced a wrong pressure.
+
+    The raw count is clamped to 0..K_RAW_FULLSCALE first, so a negative or
+    out-of-range transducer reading cannot wrap the WORD result.
+
+    Objectives:
+        * keep the transducer scaling in RegulatorConstants, not in the expression
+        * widen the intermediate arithmetic so it cannot overflow
+        * return pressure in engineering units, saturated to the rated span
+
+    History:
+        legacy     : created, with the scaling literals (3000, 32767) inline
+        2026-11-27 : scaling moved to RegulatorConstants, arithmetic widened to DINT
+*)
 VAR_INPUT
-    iRawVoltage : INT;
+    iRawVoltage : INT;  // Raw pressure transducer count from the analog input [count]
 END_VAR
 VAR
+    diRawCount : DINT;  // Clamped raw count, widened so the scale product cannot overflow [count]
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[(* Transducer voltage to pressure *)
-(* Add formula in here *)
-F_rPressure := INT_TO_WORD((iRawVoltage*3000)/32767);]]></ST>
+      <ST><![CDATA[(* Transducer count to pressure - see the function header for conversion and units *)
+diRawCount := LIMIT(0, INT_TO_DINT(iRawVoltage), RegulatorConstants.K_RAW_FULLSCALE);
+
+F_rPressure := DINT_TO_WORD((diRawCount * RegulatorConstants.K_PRESS_SPAN_REGULATOR) / RegulatorConstants.K_RAW_FULLSCALE);]]></ST>
     </Implementation>
     <ObjectProperties />
   </POU>

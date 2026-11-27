@@ -1,0 +1,39 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="RegulatorConstants" Id="{7b2e5f04-93c1-4a58-8d6f-1c9a0e4b7d23}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+(*
+    RegulatorConstants
+
+    Hardware dependent scaling for the regulator pressure signal chain.
+
+    The regulator analog IO carries a 0..10 V signal as a 15 bit signed ADC/DAC
+    count, and every regulator / transducer model has its own rated pressure span
+    in engineering units. Both values used to be written as bare literals inside
+    the regulator POUs, which made the conversion impossible to recalibrate or to
+    reuse for a different device model without editing the logic. They live here
+    once, with their units, so rescaling a device is a one line change.
+
+    Usage:
+        RegulatorConstants.K_RAW_FULLSCALE      (the GVL is qualified_only)
+        RegulatorConstants.K_PRESS_SPAN_...
+
+    History:
+        legacy     : scaling literals (32767, 1000, 3000) inside the regulator POUs
+        2026-11-27 : constants declared, regulator POUs switched over to them
+*)
+VAR_GLOBAL CONSTANT
+    (* Raw ADC/DAC full-scale count of the 0..10 V regulator analog IO.
+       Full count == full-scale voltage == rated pressure span. [count] *)
+    K_RAW_FULLSCALE : DINT := 32767;
+
+    (* Proportionair electro-pneumatic regulator rated full-scale output pressure,
+       in the engineering units of ST_Proportionair.iPressure / iSetpoint. [EU] *)
+    K_PRESS_SPAN_PROPORTIONAIR : DINT := 1000;
+
+    (* Rated full-scale pressure of the regulator in/out pressure transducers read by
+       F_rPressure, in the engineering units of ST_Regulator.wInPress / wOutPress. [EU] *)
+    K_PRESS_SPAN_REGULATOR : DINT := 3000;
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

@@ -171,6 +171,9 @@
     <Compile Include="GVLs\GVL_SAMPLE.TcGVL">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="GVLs\RegulatorConstants.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="PlcTask.TcTTO">
       <SubType>Code</SubType>
     </Compile>
@@ -277,6 +280,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\Tests\FB_VICI_EPS_TEST.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="POUs\Tests\FB_rPressure_TEST.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\VICI\EPS\FB_12PVICI_EPS.TcPOU">

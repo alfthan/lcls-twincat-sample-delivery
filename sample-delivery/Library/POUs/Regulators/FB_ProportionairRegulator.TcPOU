@@ -2,12 +2,34 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4022.18">
   <POU Name="FB_ProportionairRegulator" Id="{8353dc22-d596-4ee5-8fe9-fb2eb72364f8}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_ProportionairRegulator
+(*
+    FB_ProportionairRegulator
+
+    Proportionair electro-pneumatic pressure regulator control.
+
+    Usage:
+        fbRegulator(iq_stRegProp := stProportionair);
+
+    Objectives:
+        * read the regulator pressure back in engineering units
+        * clamp the requested setpoint to the configured limits
+        * command the regulator with a raw DAC count scaled to its rated span
+
+    The ADC/DAC scaling comes from RegulatorConstants (K_RAW_FULLSCALE,
+    K_PRESS_SPAN_PROPORTIONAIR) instead of the bare 32767/1000 literals that used
+    to be inline here, so a regulator with a different rated span is recalibrated
+    through one named constant rather than by editing the logic.
+
+    History:
+        A. Wallace 2015-10-7 : created
+        2026-11-27           : scaling moved to RegulatorConstants, rated span documented
+*)
 VAR_INPUT
 END_VAR
 VAR_OUTPUT
 END_VAR
 VAR_IN_OUT
-    iq_stRegProp	:	ST_Proportionair;
+    iq_stRegProp : ST_Proportionair;  // Regulator pressure/control interface (IO, setpoint, limits)
 END_VAR
 VAR
 
@@ -15,14 +37,21 @@ END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[(* A. Wallace 2015-10-7
-Proportionair regulator control *)
+Proportionair regulator control
+2026-11-27: hardware scaling now read from RegulatorConstants instead of inline literals *)
 
-(* Pressure signal conversion, max pressure out 1000 (I think...) *)
-iq_stRegProp.iPressure := REAL_TO_INT(1000 * (MAX(0,INT_TO_REAL(iq_stRegProp.i_iPressRB)) / 32767));
+(* Pressure signal conversion: raw ADC count -> regulator rated pressure span *)
+iq_stRegProp.iPressure := REAL_TO_INT(
+    DINT_TO_REAL(RegulatorConstants.K_PRESS_SPAN_PROPORTIONAIR)
+    * (MAX(0, INT_TO_REAL(iq_stRegProp.i_iPressRB)) / DINT_TO_REAL(RegulatorConstants.K_RAW_FULLSCALE)));
 
+(* Clamp the requested setpoint to the configured pressure limits before commanding *)
 iq_stRegProp.iSetpoint := LIMIT(iq_stRegProp.iLoLimit, iq_stRegProp.iSetpoint, iq_stRegProp.iHiLimit);
 
-iq_stRegProp.q_iPressCt := REAL_TO_INT( (INT_TO_REAL(iq_stRegProp.iSetpoint)/1000)*32767);]]></ST>
+(* Pressure setpoint -> raw DAC count over the regulator rated span *)
+iq_stRegProp.q_iPressCt := REAL_TO_INT(
+    (INT_TO_REAL(iq_stRegProp.iSetpoint) / DINT_TO_REAL(RegulatorConstants.K_PRESS_SPAN_PROPORTIONAIR))
+    * DINT_TO_REAL(RegulatorConstants.K_RAW_FULLSCALE));]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>
