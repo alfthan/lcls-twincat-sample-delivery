@@ -8,7 +8,7 @@ VAR_INPUT
     iNumPorts : INT;
 END_VAR
 VAR_IN_OUT
-    aPortEPS : ARRAY [*] OF E_VICI_PORT_EPS; // EPS for each port.
+    aPortEPS : ARRAY [*] OF ST_VICI_PORT_EPS; // EPS for each port.
     bOverride : BOOL;
 END_VAR
 VAR_OUTPUT

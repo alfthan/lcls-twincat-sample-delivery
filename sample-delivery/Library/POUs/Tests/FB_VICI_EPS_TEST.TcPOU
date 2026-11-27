@@ -12,7 +12,7 @@ VAR
 // These Fbs need to be defined outside of Test for Timers To Function Correcly.
 
     fbViciEPS : FB_VICI_EPS_LOGIC;
-    aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS;
+    aEPS : ARRAY[1..4] OF ST_VICI_PORT_EPS;
     fbEPS : FB_EPS;
     bAllPortsLocked : BOOL;
     iReqNewPort : INT := 1;
@@ -37,7 +37,7 @@ TestEnableOverrideExpectOverrideToAutoRestAfterTimerExpires();
     <Method Name="TestActivePortBecomesLockedExpectExternalSignalSetTrue" Id="{410125a3-8cc0-4ee9-90f5-443f51d6ea3e}">
       <Declaration><![CDATA[METHOD TestActivePortBecomesLockedExpectExternalSignalSetTrue :  REFERENCE TO FB_Test
 VAR
-    aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS;
+    aEPS : ARRAY[1..4] OF ST_VICI_PORT_EPS;
     fbViciEPS : FB_VICI_EPS_LOGIC;
     fbEPS : FB_EPS;
 
@@ -136,7 +136,7 @@ VAR_INPUT
 END_VAR
 VAR
     fbViciEPS : FB_VICI_EPS_LOGIC;
-    aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS;
+    aEPS : ARRAY[1..4] OF ST_VICI_PORT_EPS;
 
     fbEPS : FB_EPS;
 
@@ -301,7 +301,7 @@ VAR_INPUT
 END_VAR
 VAR
     fbViciEPS : FB_VICI_EPS_LOGIC;
-    aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS;
+    aEPS : ARRAY[1..4] OF ST_VICI_PORT_EPS;
 
     fbEPS : FB_EPS;
 
@@ -387,7 +387,7 @@ VAR_INPUT
 END_VAR
 VAR
     fbViciEPS : FB_VICI_EPS_LOGIC;
-    aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS;
+    aEPS : ARRAY[1..4] OF ST_VICI_PORT_EPS;
 
     fbEPS : FB_EPS;
     bAllPortsLocked : BOOL;
@@ -453,7 +453,7 @@ VAR_INPUT
 END_VAR
 VAR
     fbViciEPS : FB_VICI_EPS_LOGIC;
-    aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS;
+    aEPS : ARRAY[1..4] OF ST_VICI_PORT_EPS;
     fbEPS : FB_EPS;
     bAllPortsLocked : BOOL;
     iReqNewPort : INT;

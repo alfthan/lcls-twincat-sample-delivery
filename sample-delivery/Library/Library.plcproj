@@ -150,7 +150,7 @@
     <Compile Include="DUTs\TEC\ST_TECStatus.TcDUT">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="DUTs\Vici\EPS\E_VICI_PORT_EPS.TcDUT">
+    <Compile Include="DUTs\Vici\EPS\ST_VICI_PORT_EPS.TcDUT">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="DUTs\Vici\EPS\E_VICI_EPS_PORT_STATUS.TcDUT">

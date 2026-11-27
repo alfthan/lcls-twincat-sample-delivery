@@ -17225,7 +17225,7 @@ In case VRC is normally open</Comment>
       </Properties>
     </DataType>
     <DataType>
-      <Name>E_VICI_PORT_EPS</Name>
+      <Name>ST_VICI_PORT_EPS</Name>
       <BitSize>1376</BitSize>
       <SubItem>
         <Name>stEPS</Name>
@@ -17360,7 +17360,7 @@ In case VRC is normally open</Comment>
       </SubItem>
       <SubItem>
         <Name>aPortEPS</Name>
-        <Type PointerTo="1">E_VICI_PORT_EPS</Type>
+        <Type PointerTo="1">ST_VICI_PORT_EPS</Type>
         <Comment> EPS for each port.</Comment>
         <BitSize>64</BitSize>
         <BitOffs>128</BitOffs>
@@ -17511,7 +17511,7 @@ In case VRC is normally open</Comment>
       </SubItem>
       <SubItem>
         <Name>aEPS</Name>
-        <Type>E_VICI_PORT_EPS</Type>
+        <Type>ST_VICI_PORT_EPS</Type>
         <ArrayInfo>
           <LBound>1</LBound>
           <Elements>4</Elements>
@@ -17590,7 +17590,7 @@ In case VRC is normally open</Comment>
         </Local>
         <Local>
           <Name>aEPS</Name>
-          <Type>E_VICI_PORT_EPS</Type>
+          <Type>ST_VICI_PORT_EPS</Type>
           <ArrayInfo>
             <LBound>1</LBound>
             <Elements>4</Elements>
@@ -17654,7 +17654,7 @@ In case VRC is normally open</Comment>
         </Local>
         <Local>
           <Name>aEPS</Name>
-          <Type>E_VICI_PORT_EPS</Type>
+          <Type>ST_VICI_PORT_EPS</Type>
           <ArrayInfo>
             <LBound>1</LBound>
             <Elements>4</Elements>
@@ -17708,7 +17708,7 @@ In case VRC is normally open</Comment>
         </Local>
         <Local>
           <Name>aEPS</Name>
-          <Type>E_VICI_PORT_EPS</Type>
+          <Type>ST_VICI_PORT_EPS</Type>
           <ArrayInfo>
             <LBound>1</LBound>
             <Elements>4</Elements>
@@ -17762,7 +17762,7 @@ In case VRC is normally open</Comment>
         <ReturnBitSize>64</ReturnBitSize>
         <Local>
           <Name>aEPS</Name>
-          <Type>E_VICI_PORT_EPS</Type>
+          <Type>ST_VICI_PORT_EPS</Type>
           <ArrayInfo>
             <LBound>1</LBound>
             <Elements>4</Elements>
@@ -17821,7 +17821,7 @@ In case VRC is normally open</Comment>
         </Local>
         <Local>
           <Name>aEPS</Name>
-          <Type>E_VICI_PORT_EPS</Type>
+          <Type>ST_VICI_PORT_EPS</Type>
           <ArrayInfo>
             <LBound>1</LBound>
             <Elements>4</Elements>
