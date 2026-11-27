@@ -3,8 +3,12 @@
   <DUT Name="ST_RegDeadbandControls" Id="{a04513ee-c76f-4682-bef9-04f3920c05e2}">
     <Declaration><![CDATA[TYPE ST_RegDeadbandControls :
 STRUCT
+    (* Tunable deadband and speed limits for a regulator axis, carried as
+       ST_Regulator.stDeadband so the values can be tuned without editing code. *)
+    (* History:
+         2026-11-27  Documented member meaning, units and valid range. *)
     (* Deadband controls *)
-iDeadband	:	INT;
+iDeadband	:	INT; // deadband width in degrees (0 = no deadband), valid range 0..iMaxSpeed
 iMaxSpeed	:	INT; // degrees per second
 END_STRUCT
 END_TYPE
