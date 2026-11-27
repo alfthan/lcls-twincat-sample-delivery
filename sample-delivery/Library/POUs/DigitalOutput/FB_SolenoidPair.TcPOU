@@ -1,7 +1,65 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_SolenoidPair" Id="{23ddf2e7-415d-4237-9e6d-fcc92e4bc96b}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_SolenoidPair
+    <Declaration><![CDATA[(*
+    FB_SolenoidPair - driver for one mutually exclusive solenoid valve pair.
+
+    PURPOSE
+        Drives one pair of solenoid valves so that only one of the two is ever
+        commanded open. The pair is selected by a single EPICS switch: valve 01
+        is open while i_xEpics is FALSE and valve 02 is open while i_xEpics is
+        TRUE. The block owns that mutual exclusion - while the debug bypass is
+        off it writes the two outputs as complements every cycle, never both.
+
+    USAGE
+        Instantiated once per solenoid pair and called unconditionally every
+        PLC cycle. The block has no VAR_INPUT / VAR_OUTPUT: the switch, the
+        debug bypass and both outputs are AT %I* / AT %Q* links wired by the
+        caller's TcLinkTo pragma, e.g. in EXAMPLE_DEPLOYMENT:
+
+            {attribute 'TcLinkTo' := '
+                .q_xDO1 := TIIB[Solenoid Pair A Digital IO (EP2338-0001)]^Channel 9^Output;
+                .q_xDO2 := TIIB[Solenoid Pair A Digital IO (EP2338-0001)]^Channel 10^Output;'}
+            fbSolenoidPairA : FB_SolenoidPair;
+
+        The caller must also link i_xEpics (the Switch PV) and i_xDebug (the
+        Debug PV). Both valve outputs carry io: io, so EPICS reads the state
+        back, and while the debug bypass is TRUE EPICS also writes it.
+
+    OBJECTIVES
+        - Keep the pair mutually exclusive: while i_xDebug is FALSE, q_xDO1 is
+          written as NOT i_xEpics and q_xDO2 as i_xEpics, so the two valves can
+          never be commanded open at the same time.
+        - Leave both outputs untouched while i_xDebug is TRUE, so an operator
+          can open each valve independently from EPICS for commissioning and
+          leak checking.
+        - Publish what each output does through pytmc field metadata - both
+          valve PVs carry ZNAM "CLOSE" / ONAM "OPEN".
+        - Hold no state of its own: the outputs are a straight function of the
+          two inputs, so dropping the debug bypass restores the A/B selection
+          on the very next cycle.
+
+    PRECONDITIONS
+        - i_xEpics and i_xDebug must be linked by the caller. An unlinked %I*
+          input reads FALSE, which selects valve 01.
+        - The Debug PV is a maintenance bypass of the mutual exclusion only.
+          While it is TRUE nothing in this block prevents both valves from being
+          commanded open, so it must be off for normal operation.
+        - The outputs are levels, not timed commands: they are rewritten every
+          cycle and the valves are passive solenoids on the digital outputs, so
+          the block has no completion wait, timeout or fault output of its own.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Added this header and the q_xDO1 / q_xDO2 declaration comments;
+            documentation only, no behaviour change (audit finding #908,
+            convention conv_321640e095c0).
+        Earlier author/date history was not recorded in this file. The block
+        came in with the original LCLS sample-delivery code (2023-05-19) and
+        has since only gained PV metadata - 2025-06-25, ZNAM/ONAM field
+        attributes on the two valve PVs (J. Zamudio).
+*)
+FUNCTION_BLOCK FB_SolenoidPair
 VAR_INPUT
 END_VAR
 VAR_OUTPUT
@@ -15,6 +73,10 @@ VAR
         field: ZNAM "CLOSE"
         field: ONAM "OPEN"
      '}
+    (* Valve 01 solenoid output (PV Valve:01:Open). TRUE = output ON, valve
+       01 commanded OPEN (ONAM); FALSE = output OFF, valve 01 commanded
+       CLOSED (ZNAM). Written as NOT i_xEpics while the debug bypass
+       i_xDebug is FALSE, and left to EPICS while i_xDebug is TRUE. *)
     q_xDO1 AT %Q*	:	BOOL;
     {attribute 'pytmc' := '
         pv: Valve:02:Open
@@ -22,6 +84,10 @@ VAR
         field: ZNAM "CLOSE"
         field: ONAM "OPEN"
      '}
+    (* Valve 02 solenoid output (PV Valve:02:Open). TRUE = output ON, valve
+       02 commanded OPEN (ONAM); FALSE = output OFF, valve 02 commanded
+       CLOSED (ZNAM). Written as i_xEpics while the debug bypass i_xDebug
+       is FALSE, and left to EPICS while i_xDebug is TRUE. *)
     q_xDO2 AT %Q*	:	BOOL;
 
     {attribute 'pytmc' := '
