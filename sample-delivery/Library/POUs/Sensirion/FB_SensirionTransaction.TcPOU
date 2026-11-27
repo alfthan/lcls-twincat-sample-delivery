@@ -102,7 +102,7 @@ CASE iStep OF
             MEMCPY(destAddr:=ADR(baTxData[5]), srcAddr:=ADR(i_abTxData), n:=i_bLen);
         END_IF
         //Add the checksum
-        baTxData[5+i_bLen]:=fSHDLCChecksum(i_bAdr:=i_bAdr, i_bCmd:=i_bCmd, i_bLen:=i_bLen, i_pbaTxData:=ADR(i_abTxData));
+        baTxData[5+i_bLen]:=F_SHDLCChecksum(i_bAdr:=i_bAdr, i_bCmd:=i_bCmd, i_bLen:=i_bLen, i_pbaTxData:=ADR(i_abTxData));
 
 
 

@@ -264,7 +264,7 @@
     <Compile Include="POUs\Sensirion\FB_SensirionTransaction.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="POUs\Sensirion\fSHDLCChecksum.TcPOU">
+    <Compile Include="POUs\Sensirion\F_SHDLCChecksum.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\TEC\FB_TECDriver.TcPOU">
