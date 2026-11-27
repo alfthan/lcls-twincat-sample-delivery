@@ -1,22 +1,48 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.0.26">
   <POU Name="FB_EcatDiag" Id="{5f761df3-17d1-44c1-84cd-865068aed9a8}">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_EcatDiag
+    <Declaration><![CDATA[(*
+    FB_EcatDiag
+
+    Purpose : EtherCAT slave diagnostic for one master. Every cycle it reads the
+              state of all slaves on the bus into astTermStates and sets
+              q_xAllStatesGood when every reported slave is in OP with a good link,
+              so the caller can gate motion / actuation on a healthy fieldbus.
+
+    Usage   : Wire i_AMSNetId to the AMSNETID of the EtherCAT master, hold
+              i_xFirstPass TRUE for the first PLC cycle and evaluate
+              q_xAllStatesGood. The slave count reported by the master is
+              sanitised before use: it is clamped to the capacity of astTermStates
+              (GVL_SAMPLE.g_iMaxEcatSlaves) and q_xSlaveCountClamped reports when
+              the report was truncated.
+
+    Objectives : (1) never index past astTermStates, whatever count the fieldbus
+                 reports, (2) validate every reported slave, including the last
+                 one, (3) fail safe - report no slave state as not good.
+
+    History : legacy     : imported from the LCLSGeneral EtherCAT diagnostic block.
+              2026-11-27 : the reported slave count is clamped to the buffer
+                           capacity, the scan iterates 1..count inclusive and
+                           q_xSlaveCountClamped was added (audit finding 1160).
+*)
+FUNCTION_BLOCK FB_EcatDiag
 VAR_INPUT
     i_AMSNetId	:	AMSNETID; //Connect this to an AMSNETID structure as a PLC input. Then link the input to the AMSNETID name in the master info.
-    i_xFirstPass	:	BOOL;
+    i_xFirstPass	:	BOOL; //System first pass flag, TRUE for the first PLC cycle
 END_VAR
 VAR_OUTPUT
-    q_xAllStatesGood	:	BOOL;
+    q_xAllStatesGood	:	BOOL; //TRUE only when every reported slave is in OP with a good link
+    q_xSlaveCountClamped	:	BOOL; //TRUE when the reported slave count exceeded the buffer capacity and was clamped
 END_VAR
 VAR
-    sNetId : T_AmsNetId;
-    astTermStates : ARRAY[1..256] OF ST_EcSlaveState;
+    sNetId : T_AmsNetId; //AMS net id string, built from i_AMSNetId
+    astTermStates : ARRAY[1..GVL_SAMPLE.g_iMaxEcatSlaves] OF ST_EcSlaveState; //ECAT slave state buffer, capacity g_iMaxEcatSlaves
 
-    fbGetAllSlaveStates     : FB_EcGetAllSlaveStates;
-    ftReset	: F_TRIG;
+    fbGetAllSlaveStates     : FB_EcGetAllSlaveStates; //Reads the slave states of the master into astTermStates
+    ftReset	: F_TRIG; //Triggers a new slave state read whenever the previous one finished
 
-    iterator: INT;
+    iterator: INT; //Loop index over the reported slaves
+    nSlaveCount : INT; //Slave count reported by the fieldbus, clamped to the astTermStates bounds
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -31,14 +57,27 @@ fbGetAllSlaveStates(sNetId:=sNetId, pStateBuf := ADR(astTermStates), cbBufLen:=S
 
 //Cycle through each entry in the array and check if we have anyone not in OP and that the link state is good.
 // If so, then set our global IO bad boolean.
-IF fbGetAllSlaveStates.nSlaves > 0 THEN
+// The slave count is reported by the fieldbus, so it is not trusted: clamp it to the
+// capacity of astTermStates before it is used as the loop bound, and iterate
+// 1..nSlaveCount inclusive so that the last reported slave is validated as well.
+q_xSlaveCountClamped := FALSE;
+IF fbGetAllSlaveStates.nSlaves > INT_TO_UINT(GVL_SAMPLE.g_iMaxEcatSlaves) THEN
+    nSlaveCount := GVL_SAMPLE.g_iMaxEcatSlaves;
+    q_xSlaveCountClamped := TRUE;
+ELSE
+    nSlaveCount := UINT_TO_INT(fbGetAllSlaveStates.nSlaves);
+END_IF
+IF nSlaveCount > 0 THEN
     q_xAllStatesGood := TRUE;
-FOR iterator := 1 TO (fbGetAllSlaveStates.nSlaves -1) BY 1
+    FOR iterator := 1 TO nSlaveCount BY 1
     DO
-    IF NOT( (astTermStates[iterator].deviceState = EC_DEVICE_STATE_OP) AND (astTermStates[iterator].linkState = EC_LINK_STATE_OK)) THEN
-        q_xAllStatesGood := FALSE;
-    END_IF
-END_FOR
+        IF NOT( (astTermStates[iterator].deviceState = EC_DEVICE_STATE_OP) AND (astTermStates[iterator].linkState = EC_LINK_STATE_OK)) THEN
+            q_xAllStatesGood := FALSE;
+        END_IF
+    END_FOR
+ELSE
+    //No slave state available (bus not read yet or no slave configured): we cannot vouch for any slave, so fail safe
+    q_xAllStatesGood := FALSE;
 END_IF]]></ST>
     </Implementation>
     <ObjectProperties />

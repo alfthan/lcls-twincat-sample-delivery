@@ -3,6 +3,16 @@
   <GVL Name="GVL_SAMPLE" Id="{b2864d8f-27b9-49d7-a36f-f3e6d25b7296}">
     <Declaration><![CDATA[VAR_GLOBAL
     g_xFirstPass: BOOL := TRUE;
+END_VAR
+
+(* Named constants shared across the library.  Declaring a limit here and
+   referencing it at every site keeps related literals from drifting apart. *)
+VAR_GLOBAL CONSTANT
+    (* Capacity of the EtherCAT slave state buffer: one entry per slave on the
+       bus.  Used as the ARRAY bound of astTermStates in FB_EcatDiag and as the
+       clamp limit for the slave count reported by the EtherCAT master, so the
+       buffer size and the accepted count can never disagree. *)
+    g_iMaxEcatSlaves : INT := 256;
 END_VAR]]></Declaration>
   </GVL>
 </TcPlcObject>
