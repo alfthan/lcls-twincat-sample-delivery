@@ -33,13 +33,13 @@ VAR
      '}
     stPropAir2 : ST_Proportionair;
 
-    PropAir1 : FB_ProportionairRegulator;
-    PropAir2 : FB_ProportionairRegulator;
+    fbPropAir1 : FB_ProportionairRegulator;
+    fbPropAir2 : FB_ProportionairRegulator;
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[PropAir1(iq_stRegProp:=stPropAir1);
-PropAir2(iq_stRegProp:=stPropAir2);]]></ST>
+      <ST><![CDATA[fbPropAir1(iq_stRegProp:=stPropAir1);
+fbPropAir2(iq_stRegProp:=stPropAir2);]]></ST>
     </Implementation>
     <Action Name="SerialComm" Id="{01e9db49-79b3-4610-beef-975f106afee2}">
       <Implementation>
