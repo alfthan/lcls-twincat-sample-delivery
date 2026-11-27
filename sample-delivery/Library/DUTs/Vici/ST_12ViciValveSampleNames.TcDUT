@@ -3,78 +3,87 @@
   <DUT Name="ST_12ViciValveSampleNames" Id="{3a13c3fd-2ef6-436c-b65e-9eb376830a93}">
     <Declaration><![CDATA[TYPE ST_12ViciValveSampleNames :
 STRUCT
+(* ST_12ViciValveSampleNames
+   Purpose: sample-name labels for the twelve ports of a 12-position Vici valve.
+            Each member is published to EPICS as <prefix>:SampleNames:01 .. :12
+            (io: io, autosave_pass0: VAL DESC) so operators can record which
+            sample is plumbed to which port across PLC restarts.
+   Usage:   instantiated as stSampleNames in FB_12PortVici and FB_12PVICI_EPS.
+            Values are operator-supplied free text; PLC logic never parses them.
+   History: 2026-11-27 - documented every member per convention conv_321640e095c0.
+*)
     {attribute 'pytmc' := '
         pv: 01
         io: io
         autosave_pass0: VAL DESC
      '}
-     s1 : STRING;
+     s1 : STRING; // Sample name for valve port 1 (PV 01); free-text label, no units
      {attribute 'pytmc' := '
         pv: 02
         io: io
         autosave_pass0: VAL DESC
      '}
-     s2 : STRING;
+     s2 : STRING; // Sample name for valve port 2 (PV 02); free-text label, no units
      {attribute 'pytmc' := '
         pv: 03
         io: io
         autosave_pass0: VAL DESC
      '}
-     s3 : STRING;
+     s3 : STRING; // Sample name for valve port 3 (PV 03); free-text label, no units
      {attribute 'pytmc' := '
         pv: 04
         io: io
         autosave_pass0: VAL DESC
      '}
-     s4 : STRING;
+     s4 : STRING; // Sample name for valve port 4 (PV 04); free-text label, no units
            {attribute 'pytmc' := '
         pv: 05
         io: io
         autosave_pass0: VAL DESC
      '}
-     s5 : STRING;
+     s5 : STRING; // Sample name for valve port 5 (PV 05); free-text label, no units
      {attribute 'pytmc' := '
         pv: 06
         io: io
         autosave_pass0: VAL DESC
      '}
-     s6 : STRING;
+     s6 : STRING; // Sample name for valve port 6 (PV 06); free-text label, no units
      {attribute 'pytmc' := '
         pv: 07
         io: io
         autosave_pass0: VAL DESC
      '}
-     s7 : STRING;
+     s7 : STRING; // Sample name for valve port 7 (PV 07); free-text label, no units
      {attribute 'pytmc' := '
         pv: 08
         io: io
         autosave_pass0: VAL DESC
      '}
-     s8 : STRING;
+     s8 : STRING; // Sample name for valve port 8 (PV 08); free-text label, no units
            {attribute 'pytmc' := '
         pv: 09
         io: io
         autosave_pass0: VAL DESC
      '}
-     s9 : STRING;
+     s9 : STRING; // Sample name for valve port 9 (PV 09); free-text label, no units
      {attribute 'pytmc' := '
         pv: 10
         io: io
         autosave_pass0: VAL DESC
      '}
-     s10 : STRING;
+     s10 : STRING; // Sample name for valve port 10 (PV 10); free-text label, no units
      {attribute 'pytmc' := '
         pv: 11
         io: io
         autosave_pass0: VAL DESC
      '}
-     s11 : STRING;
+     s11 : STRING; // Sample name for valve port 11 (PV 11); free-text label, no units
      {attribute 'pytmc' := '
         pv: 12
         io: io
         autosave_pass0: VAL DESC
      '}
-     s12 : STRING;
+     s12 : STRING; // Sample name for valve port 12 (PV 12); free-text label, no units
 END_STRUCT
 END_TYPE
 ]]></Declaration>
