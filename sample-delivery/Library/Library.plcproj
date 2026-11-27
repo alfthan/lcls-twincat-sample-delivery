@@ -171,6 +171,9 @@
     <Compile Include="GVLs\GVL_SAMPLE.TcGVL">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="GVLs\GVL_SelectorM3.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="PlcTask.TcTTO">
       <SubType>Code</SubType>
     </Compile>

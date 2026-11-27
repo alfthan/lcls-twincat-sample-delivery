@@ -43,7 +43,7 @@ VAR
     // Vici valves
         fbSelectorSync	:	FB_SelectorSync;
 
-        afbViciDriver : ARRAY [1..2] OF FB_ViciDriver;
+        afbViciDriver : ARRAY [1..GVL_SelectorM3.K_VICI_COUNT] OF FB_ViciDriver;
 
         fbViciSerial  :   FB_SerialCommWrapper;
         stViciSerial  :   ST_SerialComm;
@@ -52,9 +52,9 @@ VAR
     {attribute 'pytmc' := '
         pv: Sensirion
      '}
-    astSelFM	: ARRAY[1..2] OF	ST_SensirionFM; //Address 1 is low flow, address 2 is high flow, low flow is mapped to M2 flow
+    astSelFM	: ARRAY[1..GVL_SelectorM3.K_FM_COUNT] OF	ST_SensirionFM; //Address 1 is low flow, address 2 is high flow, low flow is mapped to M2 flow
 
-    afbSensirionDriver	:	ARRAY [1..2] OF	FB_SensirionDriver;
+    afbSensirionDriver	:	ARRAY [1..GVL_SelectorM3.K_FM_COUNT] OF	FB_SensirionDriver;
 
     fbSensSerial : FB_SerialCommWrapper;
     stSensSerial : ST_SerialComm;
@@ -83,8 +83,8 @@ Sensirion();
 //Valve control
 ///////////////////////////////////
     fbSelectorSync(iq_stSelector:=stSelector);
-    stSelector.astViciVlvCtrl[1].iReqPos := LIMIT(1, stSelector.iVici1ReqPos, 12);
-    stSelector.astViciVlvCtrl[2].iReqPos := LIMIT(1, stSelector.iVici2ReqPos, 12);
+    stSelector.astViciVlvCtrl[1].iReqPos := LIMIT(GVL_SelectorM3.K_VICI_POS_MIN, stSelector.iVici1ReqPos, GVL_SelectorM3.K_VICI_POS_MAX);
+    stSelector.astViciVlvCtrl[2].iReqPos := LIMIT(GVL_SelectorM3.K_VICI_POS_MIN, stSelector.iVici2ReqPos, GVL_SelectorM3.K_VICI_POS_MAX);
     ViciDrivers();
 
     //for epics readback to be consistent
@@ -135,7 +135,7 @@ IF afbSensirionDriver[fmIndex].q_xDone OR
     afbSensirionDriver[fmIndex].Reset();
 
     fmIndex := fmIndex + 1;
-    IF fmIndex > 1 THEN fmIndex := 1;	END_IF
+    IF fmIndex > GVL_SelectorM3.K_FM_COUNT THEN fmIndex := 1;	END_IF
 END_IF
 
 ]]></ST>
@@ -169,7 +169,7 @@ IF 	afbViciDriver[viciIndex].q_xDone OR
         iq_stSerialTXBuffer:= stViciSerial.TxBuffer);
 
     viciIndex := viciIndex + 1;
-    IF viciIndex > 2 THEN viciIndex := 1; END_IF
+    IF viciIndex > GVL_SelectorM3.K_VICI_COUNT THEN viciIndex := 1; END_IF
 
 END_IF]]></ST>
       </Implementation>

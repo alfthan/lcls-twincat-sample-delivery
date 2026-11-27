@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="GVL_SelectorM3" Id="{94f768ff-2eef-49b1-ba97-8f88475a0c51}">
+    <Declaration><![CDATA[(*
+    GVL_SelectorM3
+    Purpose : Single source of truth for the M3 selector hardware limits.
+              The number of Vici valves, the number of Sensirion flow meters
+              and the valid Vici valve position span are fixed by the hardware
+              installed on the selector, so they are declared once here and
+              referenced from the ST_SelectorM3 DUT and the FB_SelectorM3
+              declarations and logic instead of being repeated as literals.
+    Usage   : Reference the members qualified, e.g.
+              GVL_SelectorM3.K_VICI_COUNT (the list is qualified_only).
+              Use them for ARRAY bounds, LIMIT clamps and index wrap checks so
+              the clamp can never drift out of step with the array bounds.
+    History : 2026-11-27 - Created (taio). Vici valve count, Vici valve
+              position span and flow-meter count extracted out of
+              ST_SelectorM3 and FB_SelectorM3 (audit findings #470, #539).
+*)
+{attribute 'qualified_only'}
+VAR_GLOBAL CONSTANT
+    (* Number of Vici valves controlled by the M3 selector [count] *)
+    K_VICI_COUNT    : INT := 2;
+    (* Lowest valid Vici valve position - port 1 of each valve [position] *)
+    K_VICI_POS_MIN  : INT := 1;
+    (* Highest valid Vici valve position - port 12 of each 12-port valve [position] *)
+    K_VICI_POS_MAX  : INT := 12;
+
+    (* Number of Sensirion flow meters read by the M3 selector: 1 = sample/low, 2 = sheath/high [count] *)
+    K_FM_COUNT      : INT := 2;
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

@@ -31,7 +31,7 @@ STRUCT
     iVici2ReqPos : INT;   // requested position for Vici 2
 
     //Hardware control
-    astViciVlvCtrl	: ARRAY[1..2] OF	ST_ViciControl;
+    astViciVlvCtrl	: ARRAY[1..GVL_SelectorM3.K_VICI_COUNT] OF	ST_ViciControl;
 
     (* Selector EPICS Readbacks *)
     {attribute 'pytmc' := '
@@ -54,7 +54,7 @@ STRUCT
     {attribute 'pytmc' := '
         pv: Valve
      '}
-    astViciVlvStatus	:	ARRAY[1..2] OF	ST_ViciStatus;
+    astViciVlvStatus	:	ARRAY[1..GVL_SelectorM3.K_VICI_COUNT] OF	ST_ViciStatus;
 
 
     // M3 flow rates
