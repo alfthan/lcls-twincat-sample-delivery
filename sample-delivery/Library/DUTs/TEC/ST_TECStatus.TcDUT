@@ -3,26 +3,53 @@
   <DUT Name="ST_TECStatus" Id="{df12744f-874c-412c-aed2-7be14a84a0c5}">
     <Declaration><![CDATA[TYPE ST_TECStatus :
 STRUCT
+    (*
+        Purpose : Status and alarm image of a sample-delivery TEC channel, as
+                  returned by FB_TECDriver.q_stStatus.
+        Usage   : Read-only snapshot assembled from the serial replies to
+                  TC-36-25 queries 01 (temperature), 03 (setpoint),
+                  02 (output power), 05 (alarm word) and 46 (output state).
+                  The values are valid only while xStatusValid is TRUE; until
+                  the next successful execute they still hold the previous
+                  cycle's data.
+        Units   : diTemp1 and diSetPoint carry the driver's own fixed-point
+                  temperature counts - FB_TECDriver neither rescales nor
+                  rounds them, so convert with the TC-36-25 protocol factor
+                  and do not read them as tenths of a degree. diPercentOut is
+                  percent of full output power. The alarm members are single
+                  bits of the alarm word.
+        History : 2026-11-27 Scirix Agent - added this header and the per
+                  member meaning and units (audit finding 451); no
+                  declaration changed.
+    *)
+
     //Parameters
-    diTemp1	:	DINT;
-    diSetPoint	:	DINT;
-    diPercentOut	:	DINT;
-    diCurrent	:	DINT;
-    xOutputOn	:	BOOL;
+    diTemp1	:	DINT;	// Actual temperature of the TEC, query 01 reply decoded as a 32 bit hex value; [degC] in the driver's native fixed point,
+        // not rescaled or rounded by FB_TECDriver, so it is directly comparable with diSetPoint and ST_TECControl.diTempSetpoint
+    diSetPoint	:	DINT;	// Temperature setpoint read back from the driver (query 03), [degC] in the same driver's native fixed point as diTemp1;
+        // FB_TECDriver compares it with ST_TECControl.diTempSetpoint, which it writes to the driver in that same encoding
+    diPercentOut	:	DINT;	// Output power in [%] of full scale, computed by FB_TECDriver as (raw output power 0-511 / 511) * 100;
+        // the division is integer arithmetic, so today the member reads 0 for any raw value below 511
+    diCurrent	:	DINT;	// Output (load) current as reported by the driver, in [A] at the driver's own resolution;
+        // no query in FB_TECDriver fills it today, so it stays at its start value
+    xOutputOn	:	BOOL;	// Output stage state read back from the driver (query 46), TRUE = TEC output enabled
 
-    //Alarms
-    xHiTemp	:	BOOL;
-    xLoTemp	:	BOOL;
-    xCompCtrlAlrm	:	BOOL;
-    xOverCurrent	:	BOOL;
-    xOpenInput1		:	BOOL;
-    xOpenInput2		:	BOOL;
-    xDriverLowVoltage	:	BOOL;
-
+    //Alarms (bits of the alarm word returned by query 05)
+    xHiTemp	:	BOOL;	// Bit 0: temperature above the high temperature alarm limit
+    xLoTemp	:	BOOL;	// Bit 1: temperature below the low temperature alarm limit;
+        // FB_TECDriver currently writes bit 2 into this member as well, so bit 1 and bit 2 cannot be told apart here
+    xCompCtrlAlrm	:	BOOL;	// Bit 2: compressor control alarm reported by the driver; not populated today,
+        // because FB_TECDriver assigns bit 2 to xLoTemp
+    xOverCurrent	:	BOOL;	// Bit 3: output current above the over current limit
+    xOpenInput1		:	BOOL;	// Bit 4: open input alarm on input 1
+    xOpenInput2		:	BOOL;	// Bit 5: open input alarm on input 2
+    xDriverLowVoltage	:	BOOL;	// Bit 6: driver supply voltage below the low voltage limit
 
     //Interface Diagnosis
-xStatusValid	:	BOOL;
-sReply	:	STRING;
+    xStatusValid	:	BOOL;	// TRUE when the last execute reached the done step without an error, FALSE after a failure;
+        // not cleared when a new execute starts, so it keeps the previous result until that execute finishes
+    sReply	:	STRING;	// Reply payload of the most recent serial transaction, frame markers and checksum stripped by FB_TECTransaction;
+        // overwritten by every query of an execute and emptied when a transaction fails
 
 END_STRUCT
 END_TYPE
