@@ -4,14 +4,19 @@
     <Declaration><![CDATA[TYPE ST_SensirionFMStatus :
 STRUCT
 
-    iFlowTicks	:	INT;
-    uiSensorOutput	: UINT;
-    iState	:	INT;
+    iFlowTicks	:	INT;	// Signed raw flow tick count of the last measurement, value range INT (-32768..32767), negative = reverse flow;
+        // divide by the sensor scale factor to get nL/min (rFlow applies this and converts to uL/min)
+    uiSensorOutput	: UINT;	// Raw 16 bit measurement word as received from the sensor, value range UINT (0..65535);
+        // bit 15 set = negative flow, the two's complement of which iFlowTicks carries (unitless raw sensor counts)
+    iState	:	INT;	// Flow range state of the last measurement: 0 = OK, 1 = over range, 2 = under range, 3 = flow invalid (driver error, no valid reading);
+        // value range 0..3, mirrors E_SensirionFMMode (unitless)
     rFlow	:	REAL; // units of uL/min
     xOoR	:	BOOL; // Out of range
     xFMMode :	BOOL; // calib mode readback 0 = prec, 1 = extended
     xFlowValid	:	BOOL; // driver completes successfully
-    abReply	:	ARRAY[1..500] OF BYTE;
+    abReply	:	ARRAY[1..500] OF BYTE;	// Raw SHDLC reply payload of the last transaction (payload only, frame delimiters, address, command, length and checksum stripped);
+        // up to 500 data bytes, only the number of bytes reported by the transaction reply length are meaningful.
+        // Not currently populated by FB_SensirionDriver - reserved for diagnostics.
     bStatus	:	BYTE; //Sensor status
 (* Bit 0: 0: Sensor idle
         1: Sensor Busy
