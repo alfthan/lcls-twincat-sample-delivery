@@ -6,6 +6,10 @@ VAR_IN_OUT
     iq_Injector	:	ST_ALI;
 END_VAR
 VAR_INPUT
+    (* Explicit motion enable for the three manipulator axes. FALSE by default:
+       the caller must deliberately command TRUE after confirming the manipulator
+       is clear. The axes stay de-energized otherwise. *)
+    i_xEnable	:	BOOL;
 END_VAR
 VAR_OUTPUT
 END_VAR
@@ -45,6 +49,11 @@ iq_Injector.stPropVlv.i_rPressRB := iq_Injector.stSkimmerVG.rPRESS;
 fbPropValve(stPropValve:=iq_Injector.stPropVlv, i_xExtIlk := TRUE);
 
 (* Manipulator *)
+//Enable request comes from the caller, not from the axis struct default (which is FALSE)
+iq_Injector.axisX.xEnable := i_xEnable;
+iq_Injector.axisY.xEnable := i_xEnable;
+iq_Injector.axisZ.xEnable := i_xEnable;
+
 fbManipX(iq_ManipAxis:=iq_Injector.axisX, i_xHotPlug:=ftHotPlug.Q);
 fbManipY(iq_ManipAxis:=iq_Injector.axisY, i_xHotPlug:=ftHotPlug.Q);
 fbManipZ(iq_ManipAxis:=iq_Injector.axisZ, i_xHotPlug:=ftHotPlug.Q);

@@ -10,6 +10,9 @@ VAR_OUTPUT
     q_xError	:	BOOL;
 END_VAR
 VAR_IN_OUT
+    (* Manipulator axis interface. iq_ManipAxis.xEnable is the motion-enable
+       request: safety-relevant, defaults FALSE, and the caller must explicitly
+       command it TRUE before this block powers the axis or accepts a move. *)
     iq_ManipAxis	:	ST_ManipAxis;
 END_VAR
 VAR
@@ -42,6 +45,14 @@ Alex Wallace, 2016-8-8
 
 This block works by jumping between two absolute move blocks and buffering
 the motion between them.
+
+Safety: the only enable path is iq_ManipAxis.xEnable, which ST_ManipAxis
+defaults to FALSE. Nothing is powered and no move executes until the caller
+explicitly sets it TRUE; dropping it de-asserts MC_Power and returns to Init.
+
+History: 2026-11-27 - Documented the explicit-enable contract after the
+interface struct default was corrected to FALSE (audit finding #429,
+convention conv_65aba2c165c0).
 *)
 
 

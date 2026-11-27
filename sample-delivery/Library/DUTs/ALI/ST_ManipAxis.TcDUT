@@ -4,8 +4,22 @@
     <Declaration><![CDATA[TYPE ST_ManipAxis :
 STRUCT
 
+(* ST_ManipAxis
+
+   Purpose : Interface struct for one ALI manipulator axis. The caller writes the
+             control fields (enable, requested position, start/stop) and reads back
+             the state, the EPICS motor status word and the limit switches.
+
+   Safety  : xEnable is the only motion-enable request and defaults FALSE, so a
+             freshly declared or reset struct never energizes the drive. The caller
+             must explicitly command xEnable := TRUE before the axis can move.
+
+   History : 2026-11-27 - xEnable defaulted to FALSE instead of TRUE so that
+             enabling is always an explicit, deliberate caller command (audit
+             finding #429, convention conv_65aba2c165c0). Alex Wallace, 2016.
+*)
 (* Controls *)
-xEnable	:	BOOL := TRUE;
+xEnable	:	BOOL := FALSE; //Axis enable request: safety default FALSE, caller must command TRUE for motion
 rReqAbsPos	:	REAL;
 rReqRelPos	:	REAL;
 xStart	:	BOOL;
