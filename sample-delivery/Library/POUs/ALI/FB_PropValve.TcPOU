@@ -53,14 +53,14 @@ stPropValve.xEnabled := mcPower.Enable;
 
 IF AnyError THEN
     eState := E_PropValveFBState.Error;
-    stPropValve.ePVCtrlStateReq := HMI_PropValveCtrlState.Hold;
+    stPropValve.ePVCtrlStateReq := E_HMI_PropValveCtrlState.Hold;
 ELSIF xReady THEN
     CASE stPropValve.ePVCtrlStateReq OF
-        HMI_PropValveCtrlState.Hold:
+        E_HMI_PropValveCtrlState.Hold:
             eState := E_PropValveFBState.Hold;
-        HMI_PropValveCtrlState.Manual:
+        E_HMI_PropValveCtrlState.Manual:
             eState := E_PropValveFBState.Manual;
-        HMI_PropValveCtrlState.Pressure:
+        E_HMI_PropValveCtrlState.Pressure:
             eState := E_PropValveFBState.Pressure;
     END_CASE
 ELSE
@@ -71,21 +71,21 @@ CASE eState OF
     E_PropValveFBState.Init:
         //This state is reached at startup and after a reset
         //It seeks the closed limit switch and moves to hold
-        stPropValve.ePVCtrlState := HMI_PropValveCtrlState.Hold;
+        stPropValve.ePVCtrlState := E_HMI_PropValveCtrlState.Hold;
         fbPID.i_Reset := TRUE;
         IF NOT tofLLSFilter.Q AND mcPower.Status THEN
-            stPropValve.ePVCtrlStateReq := HMI_PropValveCtrlState.Hold;
+            stPropValve.ePVCtrlStateReq := E_HMI_PropValveCtrlState.Hold;
             fbPID.i_Reset := TRUE;
             xReady := TRUE;
         END_IF
     E_PropValveFBState.Hold:
-        stPropValve.ePVCtrlState := HMI_PropValveCtrlState.Hold;
+        stPropValve.ePVCtrlState := E_HMI_PropValveCtrlState.Hold;
         mcJog.JogForward := FALSE;
         mcJog.JogBackwards := FALSE;
         fbPID.i_Hold := TRUE;
 
     E_PropValveFBState.Pressure:
-        stPropValve.ePVCtrlState := HMI_PropValveCtrlState.Pressure;
+        stPropValve.ePVCtrlState := E_HMI_PropValveCtrlState.Pressure;
 
         fbPID.i_Hold := FALSE;
         fbPID.i_Reset := FALSE;
@@ -97,7 +97,7 @@ CASE eState OF
         mcJog.Velocity := ABS(fbPID.q_lrCtrlOutput) * stPropValve.lrMaxSpeed;
 
     E_PropValveFBState.Manual:
-        stPropValve.ePVCtrlState := HMI_PropValveCtrlState.Manual;
+        stPropValve.ePVCtrlState := E_HMI_PropValveCtrlState.Manual;
         fbPID.i_Hold := TRUE;
         mcSmoothMover.Enable := TRUE;
         mcSmoothMover.ReqAbsPos := LIMIT(0, INT_TO_LREAL(stPropValve.i_iPercOpenSP), 100)/100*UpperLimit;

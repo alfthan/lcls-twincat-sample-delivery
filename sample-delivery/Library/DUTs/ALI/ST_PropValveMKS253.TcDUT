@@ -15,9 +15,9 @@ STRUCT
     //Valve interlock
     xInterlock	:	BOOL;
     //PropValve Control State Control
-    ePVCtrlStateReq : HMI_PropValveCtrlState;
+    ePVCtrlStateReq : E_HMI_PropValveCtrlState;
     //PropValve Control State Readback
-    ePVCtrlState : HMI_PropValveCtrlState;
+    ePVCtrlState : E_HMI_PropValveCtrlState;
     //NC Axis Ref
     stAxis	:	AXIS_REF;
     //Physical limit switches
