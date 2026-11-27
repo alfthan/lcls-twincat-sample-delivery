@@ -1,30 +1,76 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4022.18">
   <DUT Name="ST_Proportionair" Id="{1cb50253-0c45-4afc-8e14-284b1dbf64b6}">
-    <Declaration><![CDATA[TYPE ST_Proportionair :
+    <Declaration><![CDATA[(*
+    Purpose: interface structure for one Proportionair electronic pressure
+    regulator channel. It carries the pressure setpoint and its limits, the
+    regulated-pressure readback, the controller stability flag, and the two raw
+    analog terminal words that bind the structure to the field wiring.
+
+    Usage: instantiated once per regulator inside a pressure control module
+    (stPropAir1/stPropAir2 of FB_PressureControlModule and of FB_MPV1) and
+    passed to the owning regulator FB through its VAR_IN_OUT iq_stRegProp:
+        FB_PCM_AIO                (FB_MPV1, full scale 100 psi)
+        FB_ProportionairRegulator (FB_PressureControlModule, full scale 1000)
+    The owning FB, not this structure, holds the scale: each scan it derives
+    iPressure from i_iPressRB, clamps iSetpoint into [iLoLimit, iHiLimit] and
+    derives q_iPressCt from the clamped setpoint. i_iPressRB and q_iPressCt are
+    the only members that reach the field; the deployment program links them to
+    the EtherCAT analog terminal with a TcLinkTo pragma (see
+    EXAMPLE_DEPLOYMENT, which binds them to the EP4374-0002 AI/AO channels of
+    "PCM A").
+
+    Objectives:
+    - One named interface per regulator, so that the deployment program, the
+      regulator FB and the EPICS records use the same variable names.
+    - Keep the engineering values (setpoint, limits, pressure) in the
+      regulator's own unit and the terminal words in raw counts, so that the
+      two are never confused.
+    - Publish the same members to EPICS through the pytmc pragmas below
+      (Enable, Setpoint, HighLimit, LowLimit, Pressure).
+
+    Units, and the caveat on them: the pressure members are integers in psi
+    against a 0-10 V terminal span, 0..100 psi mapped onto 0..32767 counts.
+    That is the scale FB_PCM_AIO states (iDEVICE_MAX_PRESSURE := 100 // (psi),
+    iTermBits := 32767) and the scale FB_MPV1 passes to it.
+    FB_ProportionairRegulator instead maps the span onto 0..1000 and comments
+    it as "max pressure out 1000 (I think...)", so on a module driven by that
+    FB the pressure members run 0..1000 and are not psi. Nothing in this
+    repository records the pressure span of the installed regulators: treat psi
+    as FB_PCM_AIO's claim, not as a measurement of the hardware.
+
+    History:
+    2023-05-19 J. Zamudio - structure added with the initial commit (746deac);
+    xStable was the only member carrying a comment.
+    2025-05-29 J. Zamudio - moved to Library/DUTs in the project restructure
+    (9b2fb2c), contents unchanged.
+    2026-11-27 header and per-member comments added; no member, type or pragma
+    changed (convention audit, task #125).
+*)
+TYPE ST_Proportionair :
 STRUCT
 
-(* Control *)
+(* Control, written from EPICS *)
 {attribute 'pytmc' := '
         pv: Enable
         io: io
      '}
-xEnable	:	BOOL;
+xEnable	:	BOOL;	// Regulation enable request. Published as PropAir:0n:Enable but read by no regulator FB - see header.
 {attribute 'pytmc' := '
         pv: Setpoint
         io: io
      '}
-iSetpoint	:	INT;
+iSetpoint	:	INT;	// Pressure setpoint, psi (0..100 on a 100 psi span). Clamped into [iLoLimit, iHiLimit] by the owning FB.
 {attribute 'pytmc' := '
         pv: HighLimit
         io: io
      '}
-iHiLimit	:	INT;
+iHiLimit	:	INT;	// Upper clamp for iSetpoint, psi (0..100). No default in the FBs: 0 until set from EPICS.
 {attribute 'pytmc' := '
         pv: LowLimit
         io: io
      '}
-iLoLimit	:	INT;
+iLoLimit	:	INT;	// Lower clamp for iSetpoint, psi (0..100). No default in the FBs: 0 until set from EPICS.
 
 (* Readback *)
 xStable	: BOOL;//TTL signal from the proportionair controller that the pressure is stable
@@ -32,13 +78,13 @@ xStable	: BOOL;//TTL signal from the proportionair controller that the pressure 
         pv: Pressure
         io: i
      '}
-iPressure : INT;
+iPressure : INT;	// Measured pressure, psi (0..100), scaled by the owning FB from i_iPressRB. Read-only to EPICS.
 
-
+(* Raw analog terminal words: the only members that reach the field *)
 {attribute 'TcDisplayScale' := '0-10'}
-i_iPressRB AT %I* : INT;
+i_iPressRB AT %I* : INT;	// Analog input counts, 0..32767 = 0..10 V = 0..100 psi (FB_PCM_AIO span); negatives clamped to 0.
 {attribute 'TcDisplayScale' := '0-10'}
-q_iPressCt AT %Q* : INT;
+q_iPressCt AT %Q* : INT;	// Analog output counts, 0..32767 = 0..10 V = 0..100 psi pressure demand to the regulator.
 
 END_STRUCT
 END_TYPE
