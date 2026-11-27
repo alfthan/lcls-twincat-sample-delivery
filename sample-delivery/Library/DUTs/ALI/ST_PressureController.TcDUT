@@ -5,18 +5,20 @@
 STRUCT
     (* Intent of this structure is to provide generic variables
     for a pressure controller. It is meant to be extended by
-    the hardware IO variables into a specific structure. *)
+    the hardware IO variables into a specific structure.
+    All pressure values are in Torr, matching the gauge readback
+    they are compared against; never write bar(g), psi or Pa into them. *)
 
     //Controls
-    //Pressure setpoint
+    //Pressure setpoint [Torr]
     i_rPressSP	:	REAL;
-    //Pressure readback
+    //Pressure readback from the pressure gauge [Torr]
     i_rPressRB	:	REAL;
-    //Controller deadband
+    //Controller deadband around the setpoint [Torr]
     rDeadband	:	REAL;
-    //Actuator percentage open setpoint 0-100%
+    //Actuator percentage open setpoint [%], 0-100
     i_iPercOpenSP	:	INT;
-    //Acuator percentage open readback
+    //Actuator percentage open readback [%], 0-100
     q_iPercOpen	:	INT;
     //Controller Mode
     i_eCntlMode	:	E_CTRL_MODE;
