@@ -1,32 +1,45 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4022.18">
   <DUT Name="ST_BhElFlow" Id="{aa56882c-6739-4583-9306-a6edfd4b5ed1}">
-    <Declaration><![CDATA[TYPE ST_BhElFlow :
+    <Declaration><![CDATA[(* Bronkhorst EL-Flow mass flow meter/controller interface for a single instrument.
+
+   Purpose: carry the flow values exchanged with one Bronkhorst MFM over EtherCAT together with the
+   engineering unit they are expressed in, so that a readback or a setpoint can never be scaled
+   against a guessed unit.
+
+   Usage:   declared as 'stMFM' inside FB_BronkhorstMFM. The PDO fields are wired by the caller with
+            TcLinkTo: i_rFlow to the device TxPDO 'fMeasure', q_rSetpoint to the RxPDO 'fSetpoint'
+            (see EXAMPLE_DEPLOYMENT). eFlowUnit, i_udiUnit and i_sUnit describe the engineering unit
+            configured in the instrument; E_BHElFlowUnit is still a placeholder enum, so the unit in
+            use is the one carried by i_sUnit / i_udiUnit.
+
+   The PLC applies no scaling and no clamping: i_rFlow and q_rSetpoint are already in the instrument's
+   own unit, and the caller must keep q_rSetpoint inside the instrument's configured flow span. *)
+TYPE ST_BhElFlow :
 STRUCT
-    eFlowUnit	:	E_BHElFlowUnit;
+    eFlowUnit	:	E_BHElFlowUnit;		// flow unit of i_rFlow and q_rSetpoint (see i_sUnit / i_udiUnit)
 
     {attribute 'pytmc' := '
         pv: Unit
         io: i
      '}
-    i_sUnit			AT %I*	:	STRING;
+    i_sUnit			AT %I*	:	STRING;		// flow unit as text, e.g. 'ml/min'
 
-    i_udiUnit	:	UDINT;
+    i_udiUnit	:	UDINT;		// flow unit as the device's numeric unit code, companion to i_sUnit
 
     {attribute 'pytmc' := '
         pv: Flow
         io: i
      '}
-    i_rFlow			AT %I*	:	REAL;
+    i_rFlow			AT %I*	:	REAL;		// measured flow, in the unit of i_sUnit / i_udiUnit
 
     {attribute 'pytmc' := '
         pv: Setpoint
         io: o
      '}
-    q_rSetpoint 	AT %Q*	:	REAL;
+    q_rSetpoint 	AT %Q*	:	REAL;		// flow setpoint, same unit as i_rFlow
 
 END_STRUCT
-END_TYPE
-]]></Declaration>
+END_TYPE]]></Declaration>
   </DUT>
 </TcPlcObject>
