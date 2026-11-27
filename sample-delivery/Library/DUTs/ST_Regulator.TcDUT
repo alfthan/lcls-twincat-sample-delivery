@@ -4,40 +4,64 @@
     <Declaration><![CDATA[TYPE ST_Regulator :
 STRUCT
 
-(* Regulator enable *)
-xRegEnab	:	BOOL;
+    (* Regulator interface structure.
+       Carries the complete command, status and I/O interface of FB_Regulator:
+       drive axis, open/close position feedback, manual and knob control, and
+       the pressure transmitter / pressure setpoint signals.
+       Units: positions are NC axis units (counts) and velocities axis units
+       per second unless stated otherwise; pressures are transmitter full-scale
+       counts (0..3000) as produced by F_rPressure - no engineering-unit
+       conversion (psi/bar) is applied anywhere in this structure.
+       Alex Wallace, 2014-10-16 - original regulator interface.
+       Later revision: per-member documentation of meaning and units. *)
 
-(* Regulator motor *)
+//Regulator enable request. Rising edge (re)initialises the drive; FALSE stops motion and forces the block back into its init state
+xRegEnab	:	BOOL;
+//Regulator drive NC axis reference (position in axis units/counts). The block runs the axis cyclically and commands absolute moves on it
 stRegulatorMotor	:	AXIS_REF;
+//Measured regulator opening in percent of full travel, 0..100 % (status output, computed each cycle from ActPos / lrUpperLimPos)
 wPercentageOpen		:	WORD;
+//Velocity used for every absolute move, in axis units per second (default 360 = one revolution per second on a degree-scaled axis)
 lrVelocity	:	LREAL	:=360 ;
+//Fully-open reference position in axis units (counts). Equals 100 % travel and is the upper clamp for commanded positions; re-latched from the fully-open limit switch while running
 lrUpperLimPos	:	LREAL	:= 2887; //init to 2887, legacy hardcoded value
 
-(* Deadband controls *)
+//Deadband and maximum speed settings of the regulator controller (see ST_RegDeadbandControls: iDeadband in axis units, iMaxSpeed in degrees per second)
 stDeadband	:	ST_RegDeadbandControls;
 
-(* Manual control *)
+//Manual mode request: TRUE selects jog control via xPlus/xMinus/i_iMovePerc, FALSE selects knob setpoint control via i_iPercSP (not read by FB_Regulator today)
 xManual	:	BOOL;
+//Manual jog command in the opening (+) direction while TRUE; only meaningful in manual mode (not read by FB_Regulator today)
 xPlus	:	BOOL;
+//Manual jog command in the closing (-) direction while TRUE; only meaningful in manual mode (not read by FB_Regulator today)
 xMinus	:	BOOL;
+//Manual jog magnitude in percent of full travel, 0..100 % (not read by FB_Regulator today)
 i_iMovePerc	:	INT;
 
-(* Knob controls *)
+//Knob opening setpoint as a raw 16-bit fraction of full travel: 0..65535 = 0..100 %; scaled to axis units as i_iPercSP * lrUpperLimPos / 65535 and clamped to 0..lrUpperLimPos
 i_iPercSP : UINT;
 
-(* Pressure transducer *)
+//Raw inlet pressure transmitter reading, signed ADC counts (-32768..32767 over the transmitter bipolar span); converted to pressure by F_rPressure
 i_iRawInPress	: 	INT;
+//Inlet pressure in transmitter full-scale counts, 0..3000 (F_rPressure output, clamped to 0..10000); same scaling as wOutPress, not converted to engineering units
 wInPress 	:	WORD;
+//Raw outlet pressure transmitter reading, signed ADC counts (-32768..32767 over the transmitter bipolar span); converted to pressure by F_rPressure
 i_iRawOutPress	: 	INT;
+//Outlet pressure in transmitter full-scale counts, 0..3000 (F_rPressure output, clamped to 0..10000); same scaling as wInPress, not converted to engineering units
 wOutPress 	:	WORD;
 
-(* Pressure setpoint *)
+//Pressure setpoint in transmitter full-scale counts (same 0..3000 scale as wInPress/wOutPress); kept for the pressure-control mode removed in 2.5.3, FB_Regulator does not act on it
 wPressSP	:	WORD;
+//High pressure-setpoint warning threshold in transmitter full-scale counts, compared against wPressSP (default 2000 = 2/3 of transmitter full scale)
 wPressSpHi	:	WORD	:= 2000;
+//Pressure setpoint warning flag: TRUE while wPressSP is above wPressSpHi (not driven by FB_Regulator today)
 xPressSpWarn	:	BOOL;
+//Pressure loop status flag: TRUE while the regulator is still seeking its pressure setpoint, FALSE once settled (not driven by FB_Regulator today)
 xSeeking	:	BOOL;
 
+//Fully-open limit switch, real I/O input (%I), normally closed so FALSE means the switch is made: while FALSE the block latches lrUpperLimPos to the current axis position
 xRegHiLS	AT %I* :	BOOL;
+//Fully-closed/home limit switch, real I/O input (%I), normally closed so FALSE means the switch is made: while FALSE with the axis standing still the block homes the axis to position 0
 xRegLoLS	AT %I* :	BOOL;
 
 END_STRUCT
