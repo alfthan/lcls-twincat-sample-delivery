@@ -1,78 +1,90 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <DUT Name="ST_RCC" Id="{1b353780-7d91-4e7e-9358-dff7c26eabba}">
-    <Declaration><![CDATA[TYPE ST_RCC :
+    <Declaration><![CDATA[// ST_RCC - control and status interface for the RCC (sample-delivery) vent/drain cycle.
+//
+// Purpose: hold every tunable, command and status value of the RCC cycle driven
+//          by FB_RCC / FB_RCC_SM, so the sequence logic owns no literals.
+// Usage:   declare one instance per RCC (machine GVL or top-level program) and
+//          pass it as VAR_IN_OUT stRCC_CTL of FB_RCC. Members carrying a pytmc
+//          pragma are exposed to EPICS.
+// Objectives: keep the timings and the pressure interlock setpoint in the units
+//          the operator reads (seconds, mTorr), and publish the cycle state,
+//          running flag, timer read-back and log message.
+// History: 2025-06-05 - Josue Zamudio - created for RCC PLC support
+//          2026-11-27 - documented every member and added this header
+TYPE ST_RCC :
 STRUCT
     {attribute 'pytmc' :='
         pv: Tinterval
         io: io
         autosave_pass0: VAL DESC
-    '} // Time before cycle starts
-    TInterval : REAL := 10;
+    '}
+    TInterval : REAL := 10; // [s] cycle interval: wait in INIT before the cycle starts
     {attribute 'pytmc' :='
         pv: T1
         io: io
         autosave_pass0: VAL DESC
     '}
-    T1 : REAL := 20;
+    T1 : REAL := 20; // [s] VRC-02 open time at cycle start (state OPEN_VRC_02_FOR_T1)
     {attribute 'pytmc' :='
         pv: T2
         io: io
         autosave_pass0: VAL DESC
     '}
-    T2 : REAL := 10;
+    T2 : REAL := 10; // [s] VRC-03 open time for the drain check (state DRAIN_CHECK)
     {attribute 'pytmc' :='
         pv: T3
         io: io
         autosave_pass0: VAL DESC
     '}
-    T3 : REAL := 5;
+    T3 : REAL := 5; // [s] VRC-01 open time after draining (state OPEN_VRC_01_FOR_T3)
     {attribute 'pytmc' :='
         pv: T4
         io: io
         autosave_pass0: VAL DESC
     '}
-    T4 : REAL := 10;
+    T4 : REAL := 10; // [s] VRC-04 open time that ends the cycle (state OPEN_VRC_04_FOR_T4)
     {attribute 'pytmc' :=' pv: RUNCLEAN'}
-    bRunClean : BOOL := TRUE;
+    bRunClean : BOOL := TRUE; // TRUE: VRC-02 closes when draining starts; FALSE: not before DRAIN_CHECK ends
 
     {attribute 'pytmc' :=' pv: CLEAR_ERROR'}
-    bClearError : BOOL := FALSE;
+    bClearError : BOOL := FALSE; // acknowledge the latched fault, only honoured in E_RCC_STATES.ERROR
     {attribute 'pytmc' :=' pv: ERROR'}
-    bError : BOOL := FALSE;
+    bError : BOOL := FALSE; // latched fault (e.g. GCP-01 reading invalid), cleared by bClearError
     {attribute 'pytmc' :=' pv: STOP_CYCLE'}
-    bStop : BOOL := FALSE;
+    bStop : BOOL := FALSE; // stop request: abort the cycle, close all VRC valves, back to IDLE
 
     {attribute 'pytmc' :=' pv: START_CYCLE'}
-    bStartCycle : BOOL  := FALSE;
+    bStartCycle : BOOL  := FALSE; // start request: TRUE in IDLE starts one cycle, cleared by bStop
 
     {attribute 'pytmc' :='
         pv: ILK_Setpoint
         autosave_pass0: VAL DESC
      '}
-    RCC_GCP_01_INTERLOCK_SETPOINT : REAL := 10;
+    RCC_GCP_01_INTERLOCK_SETPOINT : REAL := 10; // [mTorr] VRC-03 opens only below this GCP-01 pressure (x1E2 = Torr)
     {attribute 'pytmc' :=' pv: OverrideMode '}
-    xSystemOverrideMode_RCC : BOOL := FALSE;
+    xSystemOverrideMode_RCC : BOOL := FALSE; // system override mode request, forwarded to FB_RCC_SM
 
-    eCurrentState : INT := E_RCC_STATES.IDLE;
+    eCurrentState : INT := E_RCC_STATES.IDLE; // current state of the cycle state machine (see E_RCC_STATES)
 
     {attribute 'pytmc' :='
         pv: RCC_RUNNING
         io: o
     '}
-    bRunning : BOOL := FALSE;
+    bRunning : BOOL := FALSE; // TRUE while a cycle is running (status)
     {attribute 'pytmc' :='
         pv: RCC_TIMER
         io: o
     '}
-    tTimerReadBack : STRING := '';
+    tTimerReadBack : STRING := ''; // elapsed time of the cycle timer as text, e.g. 'T#12S345MS' (status)
     {attribute 'pytmc' :=' pv: sLogMessage '}
-    sLogMessage : T_MaxString := '';
+    sLogMessage : T_MaxString := ''; // operator-facing description of the current step, e.g. 'DRAINING'
 
-    RCC_VRC_01_OPEN_OK : BOOL;
-    RCC_VRC_02_OPEN_OK : BOOL;
-    RCC_VRC_03_OPEN_OK : BOOL;
-    RCC_VRC_04_OPEN_OK : BOOL;
+    RCC_VRC_01_OPEN_OK : BOOL; // permit: VRC-02 and VRC-03 closed, VRC-01 may open
+    RCC_VRC_02_OPEN_OK : BOOL; // permit: VRC-01 and VRC-04 closed, VRC-02 may open
+    RCC_VRC_03_OPEN_OK : BOOL; // permit: GCP-01 valid and below setpoint, VRC-01 and VRC-04 closed
+    RCC_VRC_04_OPEN_OK : BOOL; // permit: VRC-02 and VRC-03 closed, VRC-04 may open
 
 END_STRUCT
 END_TYPE
