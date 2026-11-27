@@ -45,6 +45,12 @@ the motion between them.
 *)
 
 
+// Validate the VAR_IN_OUT interface reference before any dereference.
+// An unbound reference exits here instead of faulting this task.
+IF NOT __ISVALIDREF(iq_ManipAxis) THEN
+    RETURN;
+END_IF
+
 rtEnable(CLK:=iq_ManipAxis.xEnable);
 ftEnable(CLK:=iq_ManipAxis.xEnable);
 
