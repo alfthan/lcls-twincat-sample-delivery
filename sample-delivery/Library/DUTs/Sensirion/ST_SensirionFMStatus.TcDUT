@@ -11,7 +11,7 @@ STRUCT
     xOoR	:	BOOL; // Out of range
     xFMMode :	BOOL; // calib mode readback 0 = prec, 1 = extended
     xFlowValid	:	BOOL; // driver completes successfully
-    abReply	:	ARRAY[1..500] OF BYTE;
+    abReply	:	ARRAY[1..GVL_Sensirion.MAX_REPLY_BYTES] OF BYTE;
     bStatus	:	BYTE; //Sensor status
 (* Bit 0: 0: Sensor idle
         1: Sensor Busy

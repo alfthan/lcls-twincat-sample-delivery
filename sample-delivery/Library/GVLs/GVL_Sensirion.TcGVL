@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="GVL_Sensirion" Id="{0b17ebc8-444a-4b5b-8465-3a66ba8f9787}">
+    <Declaration><![CDATA[(*
+    GVL_Sensirion
+    Purpose : Single source of truth for the Sensirion SHDLC driver buffer
+              limits, protocol bytes and state-machine states. These values
+              must be declared once here and referenced, never repeated as
+              literals inside the DUTs and function blocks.
+    Usage   : Reference the members qualified, e.g.
+              GVL_Sensirion.MAX_REPLY_BYTES (the list is qualified_only).
+    History : 2026-11-27 - Created (taio). Reply-buffer size, frame size, the
+              SHDLC special bytes and the transaction error state moved out of
+              ST_SensirionFMStatus / FB_SensirionTransaction.
+*)
+{attribute 'qualified_only'}
+VAR_GLOBAL CONSTANT
+    (* Buffer sizing *)
+    MAX_REPLY_BYTES     : INT := 500;   // Largest reply payload held in ST_SensirionFMStatus.abReply [bytes]
+    MAX_FRAME_BYTES     : INT := 256;   // Largest SHDLC frame / byte window handled in one transmission [bytes]
+
+    (* SHDLC protocol special bytes *)
+    SHDLC_START_BYTE    : BYTE := 16#7E;    // Frame delimiter that opens and closes every SHDLC frame
+    SHDLC_STUFF_BYTE    : BYTE := 16#7D;    // Escape byte inserted in front of a stuffed byte
+    SHDLC_XON_BYTE      : BYTE := 16#11;    // Control byte that must be stuffed
+    SHDLC_XOFF_BYTE     : BYTE := 16#13;    // Control byte that must be stuffed
+    SHDLC_STUFF_MASK    : BYTE := 16#10;    // XOR mask applied to the fifth bit of a stuffed byte
+
+    (* Transaction state machine *)
+    SHDLC_STATE_ERROR   : INT := 9000;      // Terminal error state of the SHDLC transaction state machine
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

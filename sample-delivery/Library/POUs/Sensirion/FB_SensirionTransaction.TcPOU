@@ -11,7 +11,7 @@ VAR_INPUT
     i_bCmd					: 	BYTE; 				(* Command parameter *)
     i_bAdr					:	BYTE;	//Address parameter
     i_bLen					:	BYTE;	//Length of transmission
-    i_abTxData				:	ARRAY[1..256] OF BYTE; //Transmission
+    i_abTxData				:	ARRAY[1..GVL_Sensirion.MAX_FRAME_BYTES] OF BYTE; //Transmission
     i_tTimeOut				:	TIME := T#10S;  	(* Maximum wait time for reply *)
 END_VAR
 VAR_OUTPUT
@@ -49,7 +49,7 @@ VAR
 
     //Device specific
     iSeek : INT :=1 ;
-    bDelimiter	:	BYTE:=16#7E;
+    bDelimiter	:	BYTE:=GVL_Sensirion.SHDLC_START_BYTE;
     bRxLen	:	BYTE;
     fbShiftByteArray	:	FB_ShiftByteArray;
     iFrameWidth	:	INT;
@@ -117,18 +117,21 @@ CASE iStep OF
          0x11
          0x13 *)
          FOR iSeek:=2 TO UDINT_TO_INT(udiTxLen) DO
-             IF (baTxData[iSeek]=16#7E) OR (baTxData[iSeek]=16#7D) OR (baTxData[iSeek]=16#11) OR (baTxData[iSeek]=16#13) THEN
+             IF (baTxData[iSeek]=GVL_Sensirion.SHDLC_START_BYTE) OR
+                (baTxData[iSeek]=GVL_Sensirion.SHDLC_STUFF_BYTE) OR
+                (baTxData[iSeek]=GVL_Sensirion.SHDLC_XON_BYTE) OR
+                (baTxData[iSeek]=GVL_Sensirion.SHDLC_XOFF_BYTE) THEN
                  (* When a special byte is found, move the remaining message to the right by one byte *)
-                 fbShiftByteArray(ptArray:=ADR(baTxData), iSize:=256, iCurrIndex:=iSeek, iMessageLen:=(5+BYTE_TO_INT(i_bLen)+1), iShift:=1);
+                 fbShiftByteArray(ptArray:=ADR(baTxData), iSize:=c_ArraySize, iCurrIndex:=iSeek, iMessageLen:=(5+BYTE_TO_INT(i_bLen)+1), iShift:=1);
                  IF fbShiftByteArray.q_xError THEN
                      q_sResult:='Transaction failed in step 10 while making room for the stuffing';
-                     iStep := 9000;
+                     iStep := GVL_Sensirion.SHDLC_STATE_ERROR;
                      RETURN; //this way we catch what happened.
                     ELSE
                         //Stuff in the byte
-                        baTxData[iSeek]:=16#7D;
+                        baTxData[iSeek]:=GVL_Sensirion.SHDLC_STUFF_BYTE;
                         //Change the original byte, which now resides at iSeek+1, to invert the fifth bit
-                        baTxData[iSeek+1]:=baTxData[iSeek+1] XOR 16#10;
+                        baTxData[iSeek+1]:=baTxData[iSeek+1] XOR GVL_Sensirion.SHDLC_STUFF_MASK;
                         //Update the framewidth to be +1
                         udiTxLen := udiTxLen + 1;
                  END_IF
@@ -155,7 +158,7 @@ CASE iStep OF
             fbSendData(TXbuffer:= iq_stSerialTXBuffer,pSendData:=ADR(baTxData), Length:=udiTxLen);
         ELSIF fbSendData.Error <> 0 THEN
             q_sResult := CONCAT('In step 20 fbSendData resulted in error: ', INT_TO_STRING(fbSendData.Error));
-            iStep := 9000;
+            iStep := GVL_Sensirion.SHDLC_STATE_ERROR;
         ELSIF NOT fbSendData.Busy THEN
             iStep:=iStep + 10;
         END_IF
@@ -175,11 +178,11 @@ CASE iStep OF
         tonTimeout(IN:= TRUE, PT:= i_tTimeOut);
         IF fbReceiveData.Error <> 0 THEN
             q_sResult := CONCAT('In step 30 fbReceiveData resulted in error: ', INT_TO_STRING(fbReceiveData.Error));
-            iStep := 9000;
+            iStep := GVL_Sensirion.SHDLC_STATE_ERROR;
         ELSIF fbReceiveData.RxTimeout OR tonTimeout.Q THEN
             q_sResult := 'Serial device failed to reply within timeout period';
             q_xTimeout := TRUE;
-            iStep := 9000;
+            iStep := GVL_Sensirion.SHDLC_STATE_ERROR;
         ELSIF fbReceiveData.DataReceived THEN
             udiRxLen := fbReceiveData.LenReceiveData;
             // For troubleshooting, use this to capture a specific command message reply
@@ -188,15 +191,15 @@ CASE iStep OF
             IF udiRxLen > 0 THEN
                 //Remove the stuffing
                 FOR iSeek:=1 TO UDINT_TO_INT(udiRxLen) DO
-                    IF baRxData[iSeek]=16#7D THEN
-                        fbShiftByteArray(ptArray:=ADR(baRxData), iSize:=256, iCurrIndex:=iSeek, iMessageLen:=UDINT_TO_INT(udiRxLen), iShift:=-1);
+                    IF baRxData[iSeek]=GVL_Sensirion.SHDLC_STUFF_BYTE THEN
+                        fbShiftByteArray(ptArray:=ADR(baRxData), iSize:=c_ArraySize, iCurrIndex:=iSeek, iMessageLen:=UDINT_TO_INT(udiRxLen), iShift:=-1);
                         IF fbShiftByteArray.q_xError THEN
                             q_sResult:='Transaction failed in step 30, while removing the stuffing Hans dropped some on the floor, oh Hans!';
-                            iStep:=9000;
+                            iStep:=GVL_Sensirion.SHDLC_STATE_ERROR;
                             RETURN; // this way we catch the problem
                             ELSE
                                 //iSeek now points to the escaped byte, once again invert the fifth bit to recover
-                                baRxData[iSeek]:=baRxData[iSeek] XOR 16#10;
+                                baRxData[iSeek]:=baRxData[iSeek] XOR GVL_Sensirion.SHDLC_STUFF_MASK;
                                 //Reduce the message length by one byte
                                 udiRxLen := udiRxLen - 1;
                         END_IF
@@ -222,7 +225,7 @@ CASE iStep OF
                     //IF iDataRx = c_DebugArraySize THEN iDataRx := 1; ELSE iDataRx := iDataRx +1; END_IF
                 ELSE
                     q_sResult := 'Memcpy step failed, expected some bytes but was NOT able to export them via memcpy, investigate transaction fb';
-                    iStep := 9000;
+                    iStep := GVL_Sensirion.SHDLC_STATE_ERROR;
                 END_IF
             END_IF
         END_IF
@@ -236,7 +239,7 @@ CASE iStep OF
             iStep := 0;
         END_IF
 
-    9000:
+    GVL_Sensirion.SHDLC_STATE_ERROR:
         q_xError := TRUE;
 END_CASE]]></ST>
     </Implementation>
