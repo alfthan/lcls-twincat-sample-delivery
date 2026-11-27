@@ -1,12 +1,42 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_RCC_SM" Id="{47a0acf2-060b-4e55-9edc-089d8f8e62bc}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_RCC_SM
+    <Declaration><![CDATA[(*
+    FB_RCC_SM - rapid cycle chromatography (RCC) valve state machine.
+
+    PURPOSE
+        Sequences CRIX-RCC-VRC-01..04 through one drain/clean cycle and reports
+        the operator-facing RCC status through the stRCC_CTL structure.
+
+    USAGE
+        Instantiated by FB_RCC, which owns the valve and gauge structures and
+        evaluates F_RCC_ILK once per cycle before calling this block.
+
+    OBJECTIVES
+        - Implement the cycle as an explicit non-blocking state machine where
+          each state performs one action and transitions on a documented
+          condition.
+        - Externalise interlocks: this reusable block never evaluates a site
+          condition. The per-valve open permits and the machine permit arrive
+          on i_stILK, which the caller produces with F_RCC_ILK.
+        - Never command a valve open unless both the machine permit and that
+          valve's own open permit are TRUE, and drop the command the moment
+          either goes away.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Moved the embedded per-valve permissives into F_RCC_ILK and added
+            the external interlock permit input i_stILK; every valve command is
+            now gated on it (audit finding #918, convention conv_0121ae615346).
+*)
+FUNCTION_BLOCK FB_RCC_SM
 VAR_IN_OUT
     stRCC_VRC_01 : ST_VRC;
     stRCC_VRC_02 : ST_VRC;
     stRCC_VRC_03 : ST_VRC;
     stRCC_VRC_04 : ST_VRC;
+    (* stRCC_GCP_01 is kept on the interface because the gauge belongs to the
+       RCC equipment; its pressure is evaluated by F_RCC_ILK at the caller. *)
     stRCC_GCP_01 : ST_VG;
 
     TInterval : TIME; // Time in between cycles
@@ -23,42 +53,49 @@ VAR_IN_OUT
     bRunning : BOOL;
     tTimerRBV : STRING;
 
-    RCC_GCP_01_INTERLOCK_SETPOINT : REAL;
     xSystemOverrideMode_RCC : BOOL;
     eCurrentState : INT;
     sLogMessage : T_MaxString;
 
+    (* Readback of the permits for the EPICS display *)
     RCC_VRC_01_OPEN_OK : BOOL;
     RCC_VRC_02_OPEN_OK : BOOL;
     RCC_VRC_03_OPEN_OK : BOOL;
     RCC_VRC_04_OPEN_OK : BOOL;
 END_VAR
+VAR_INPUT
+    i_stILK : ST_RCC_ILK; // External interlock permit; wire to F_RCC_ILK() at the caller. All members default FALSE (fail safe).
+END_VAR
 VAR
-    RCC_GCP_ILK_CONV : REAL;
     tTimer1 : TON;
+
+    xPermit01 : BOOL; // i_stILK.xILK_OK AND i_stILK.xVRC01_OPEN_OK
+    xPermit02 : BOOL; // i_stILK.xILK_OK AND i_stILK.xVRC02_OPEN_OK
+    xPermit03 : BOOL; // i_stILK.xILK_OK AND i_stILK.xVRC03_OPEN_OK
+    xPermit04 : BOOL; // i_stILK.xILK_OK AND i_stILK.xVRC04_OPEN_OK
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[RCC_GCP_ILK_CONV := RCC_GCP_01_INTERLOCK_SETPOINT * 1E2; // Convert to Torr
-tTimerRBV := TIME_TO_STRING(tTimer1.ET);
+      <ST><![CDATA[tTimerRBV := TIME_TO_STRING(tTimer1.ET);
 
-(* Valve can open only when CRIX-RCC-VRC-02 and 03 are closed*)
-RCC_VRC_01_OPEN_OK := ( stRCC_VRC_02.i_xClsLS AND NOT stRCC_VRC_02.q_xOPN_DO ) AND
-                                    ( stRCC_VRC_03.i_xClsLS AND NOT stRCC_VRC_03.q_xOPN_DO ) ;
+(*
+   External interlock permit (convention: external interlock permit).
 
-(* Valve can open only when CRIX-RCC-VRC-01 and 04 are closed*)
-RCC_VRC_02_OPEN_OK := ( stRCC_VRC_01.i_xClsLS AND NOT stRCC_VRC_01.q_xOPN_DO ) AND
-                                    ( stRCC_VRC_04.i_xClsLS AND NOT stRCC_VRC_04.q_xOPN_DO );
+   The per-valve open permits and the machine permit are evaluated once per
+   cycle by the caller in F_RCC_ILK and arrive on i_stILK. This block never
+   evaluates a site condition itself. A valve is only ever commanded open while
+   both the machine permit and that valve's own open permit are TRUE, so losing
+   a permit closes the valve again instead of leaving it latched open.
+*)
+RCC_VRC_01_OPEN_OK := i_stILK.xVRC01_OPEN_OK;
+RCC_VRC_02_OPEN_OK := i_stILK.xVRC02_OPEN_OK;
+RCC_VRC_03_OPEN_OK := i_stILK.xVRC03_OPEN_OK;
+RCC_VRC_04_OPEN_OK := i_stILK.xVRC04_OPEN_OK;
 
-(* Valve can open only when CRIX-RCC-GCP-01 reading < setpoint Torr and CRIX-RCC-VRC-01 and 04 are closed*)
-RCC_VRC_03_OPEN_OK := (stRCC_GCP_01.rPRESS < RCC_GCP_ILK_CONV AND stRCC_GCP_01.xPRESS_OK ) AND
-                                 ( stRCC_VRC_01.i_xClsLS AND NOT stRCC_VRC_01.q_xOPN_DO ) AND
-                                              ( stRCC_VRC_04.i_xClsLS AND NOT stRCC_VRC_04.q_xOPN_DO );
-
-
-(* Valve can open only when CRIX-RCC-VRC-02 and 03 are closed*)
-RCC_VRC_04_OPEN_OK := ( stRCC_VRC_02.i_xClsLS AND NOT stRCC_VRC_02.q_xOPN_DO ) AND
-                                      ( stRCC_VRC_03.i_xClsLS AND NOT stRCC_VRC_03.q_xOPN_DO ) ;
+xPermit01 := i_stILK.xILK_OK AND i_stILK.xVRC01_OPEN_OK;
+xPermit02 := i_stILK.xILK_OK AND i_stILK.xVRC02_OPEN_OK;
+xPermit03 := i_stILK.xILK_OK AND i_stILK.xVRC03_OPEN_OK;
+xPermit04 := i_stILK.xILK_OK AND i_stILK.xVRC04_OPEN_OK;
 
 
 IF bStop THEN
@@ -110,7 +147,7 @@ END_IF
     E_RCC_STATES.OPEN_VRC_02_FOR_T1: // OPEN 1
         sLogMessage := 'OPEN VAVLE 2 FOR T1 SECONDS';
         tTimer1(IN:=TRUE, PT:=T1);
-        stRCC_VRC_02.pv_xOPN_SW := TRUE;
+        stRCC_VRC_02.pv_xOPN_SW := xPermit02; // Gated on the external interlock permit
 
         IF tTimer1.Q THEN
             eCurrentState := E_RCC_STATES.DRAIN;
@@ -120,15 +157,18 @@ END_IF
      E_RCC_STATES.DRAIN:	// DRAIN_1 2
         // THIS MIGHT CAUSE THE RCC TO STALL IF THIS CONDITION IS NEVER MET
         sLogMessage := 'DRAINING';
-        IF (NOT stRCC_GCP_01.xPRESS_OK) THEN
+        IF NOT i_stILK.xILK_OK THEN
             eCurrentState := E_RCC_STATES.ERROR;
             bError := TRUE;
         END_IF
 
-        IF RCC_VRC_03_OPEN_OK THEN
+        IF xPermit03 THEN
             IF bRunClean THEN stRCC_VRC_02.pv_xOPN_SW := FALSE; END_IF
             stRCC_VRC_03.pv_xOPN_SW := TRUE;
             eCurrentState := E_RCC_STATES.DRAIN_CHECK;
+        ELSE
+            // Interlock not satisfied: never leave the drain valve commanded open
+            stRCC_VRC_03.pv_xOPN_SW := FALSE;
         END_IF
 
     E_RCC_STATES.DRAIN_CHECK:	// CHECK IF WE ARE DON DRAINING 3
@@ -137,7 +177,7 @@ END_IF
 
         IF tTimer1.Q THEN
             eCurrentState := E_RCC_STATES.OPEN_VRC_01_FOR_T3;
-            IF NOT RCC_VRC_03_OPEN_OK THEN eCurrentState := E_RCC_STATES.OPEN_VRC_02_FOR_T1; END_IF
+            IF NOT xPermit03 THEN eCurrentState := E_RCC_STATES.OPEN_VRC_02_FOR_T1; END_IF
              stRCC_VRC_03.pv_xOPN_SW := FALSE;
             IF NOT bRunClean THEN stRCC_VRC_02.pv_xOPN_SW := FALSE; END_IF
             tTimer1(IN:=FALSE); // RESTART TIMER
@@ -146,7 +186,7 @@ END_IF
      E_RCC_STATES.OPEN_VRC_01_FOR_T3: // OPEN VRC_01 for T3 4
          sLogMessage := 'OPEN VALVE 1 FOR T3 SECONDS';
         tTimer1(IN:=TRUE, PT:=T3);
-        stRCC_VRC_01.pv_xOPN_SW := TRUE;
+        stRCC_VRC_01.pv_xOPN_SW := xPermit01; // Gated on the external interlock permit
         IF tTimer1.Q THEN
             eCurrentState := E_RCC_STATES.OPEN_VRC_04_FOR_T4;
             tTimer1(IN:=FALSE); // RESTART TIMER
@@ -155,7 +195,7 @@ END_IF
      E_RCC_STATES.OPEN_VRC_04_FOR_T4: // OPEN VRC_04 for T4 5
          sLogMessage := 'OPEN VALVE 4 FOR T4 SECONDS';
         tTimer1(IN:=TRUE, PT:=T4);
-        stRCC_VRC_04.pv_xOPN_SW := TRUE;
+        stRCC_VRC_04.pv_xOPN_SW := xPermit04; // Gated on the external interlock permit
         IF tTimer1.Q THEN
             sLogMessage := 'CLOSING VALVE 1&4, RESTARTING CYCLE';
             eCurrentState := E_RCC_STATES.IDLE;

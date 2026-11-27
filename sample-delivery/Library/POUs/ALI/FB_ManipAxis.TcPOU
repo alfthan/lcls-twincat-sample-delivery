@@ -1,13 +1,43 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4020.12">
   <POU Name="FB_ManipAxis" Id="{2c576ec6-7433-4ec0-8547-ab9b5dd393c9}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_ManipAxis
+    <Declaration><![CDATA[(*
+    FB_ManipAxis - one manipulator axis of the aerodynamic lens injector.
+
+    PURPOSE
+        Owns the motion-control blocks (power, reset, halt and smooth absolute
+        move) and the status mapping of a single manipulator axis, published
+        through the iq_ManipAxis structure.
+
+    USAGE
+        Instantiate once per axis. The caller must wire i_xILK from a
+        single-purpose F_ManipAxis_ILK function.
+
+    OBJECTIVES
+        - Encapsulate the axis I/O, data, protection and run logic in one block.
+        - Externalise interlocks: this reusable block never evaluates a site
+          condition. Power and motion are only requested while i_xILK is TRUE,
+          so losing the permit disables the axis and refuses new move commands.
+        - Fail safe: i_xILK defaults to FALSE, which keeps the axis disabled.
+
+    HISTORY
+        2016-08-08 / Alex Wallace
+            Block created; it works by jumping between two absolute move blocks
+            and buffering the motion between them.
+        2026-11-27 / Scirix Agent
+            Added the external interlock permit input i_xILK and gated power,
+            motion and halt on it (audit finding #1167, convention
+            conv_0121ae615346).
+*)
+FUNCTION_BLOCK FB_ManipAxis
 VAR_INPUT
     i_xHotPlug	:	BOOL;
+    i_xILK	:	BOOL := FALSE; // External interlock permit; wire to F_ManipAxis_ILK(). Defaults FALSE (fail safe).
 END_VAR
 VAR_OUTPUT
     q_asResult: ARRAY [1..20] OF STRING;
     q_xError	:	BOOL;
+    q_xILK_OK	:	BOOL; // TRUE when the permit is present and the axis is allowed to move
 END_VAR
 VAR_IN_OUT
     iq_ManipAxis	:	ST_ManipAxis;
@@ -34,6 +64,8 @@ VAR
     rReqAbsPosOld: REAL := 0;
     rReqAbsPosPrevious: REAL;
     iI: INT;
+
+    xPermitEnable	:	BOOL; // iq_ManipAxis.xEnable AND the external interlock permit
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -47,6 +79,13 @@ the motion between them.
 
 rtEnable(CLK:=iq_ManipAxis.xEnable);
 ftEnable(CLK:=iq_ManipAxis.xEnable);
+
+(* External interlock permit gate (convention: external interlock permit).
+   The site interlocks are evaluated by the caller in F_ManipAxis_ILK and arrive
+   on i_xILK; this block never evaluates one itself. Power and motion are only
+   requested while the permit is present. *)
+xPermitEnable := iq_ManipAxis.xEnable AND i_xILK;
+q_xILK_OK := i_xILK;
 
 //Update status
 iq_ManipAxis.stAxis();
@@ -66,7 +105,7 @@ CASE iq_ManipAxis.eState OF
     0: iq_ManipAxis.eState := Init;
     Init:
     (* Start by initializing the motor axis *)
-    mcPower.Enable := iq_ManipAxis.xEnable;
+    mcPower.Enable := xPermitEnable; // gated on the external interlock permit
     iq_ManipAxis.rReqAbsPos := iq_ManipAxis.rActPos; //do this when the PLC comes up so we don't just lose the position if we tweak
     IF mcPower.Status THEN //success
         xInitComplete := TRUE;
@@ -80,9 +119,9 @@ CASE iq_ManipAxis.eState OF
     END_IF
 
     MoveEnabled:
-        mcSmoothMover.Enable := iq_ManipAxis.xEnable;
+        mcSmoothMover.Enable := xPermitEnable; // gated on the external interlock permit
         mcSmoothMover.ReqAbsPos := LIMIT(-100, REAL_TO_LREAL(iq_ManipAxis.rReqAbsPos), 100);
-        mcSmoothMover.Execute := iq_ManipAxis.xStart;
+        mcSmoothMover.Execute := iq_ManipAxis.xStart AND i_xILK; // no move without the permit
         (*We've already captured the rising edge of start (if there was one, so
         go ahead and reset it.*)
         iq_ManipAxis.xStart := FALSE;
@@ -99,6 +138,11 @@ CASE iq_ManipAxis.eState OF
 
 END_CASE
 
+
+(* Interlock lost while the axis is moving: abort the motion at once. *)
+IF NOT i_xILK AND mcSmoothMover.Busy THEN
+    mcHalt.Execute := TRUE;
+END_IF
 
 mcReset.Execute := rtEnable.Q OR i_xHotPlug OR iq_ManipAxis.xReset;
 //Reset the reset controls for the next reset

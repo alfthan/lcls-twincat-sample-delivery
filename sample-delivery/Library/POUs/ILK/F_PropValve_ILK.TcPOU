@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="F_PropValve_ILK" Id="{3f1a5d70-0b2c-4d51-9a64-7c11e2b90a05}" SpecialFunc="None">
+    <Declaration><![CDATA[(*
+    F_PropValve_ILK - site interlock permit for FB_PropValve.
+
+    PURPOSE
+        Single home for every interlock condition that permits the injector
+        butterfly (proportional) valve to be enabled and moved.
+
+    USAGE
+        Evaluated by the deployment that owns the injector and wired into both
+        ST_PropValveMKS253.xInterlock and FB_PropValve.i_xExtIlk. FB_PropValve
+        only ever ANDs the two permits it is given; it never evaluates a site
+        condition itself.
+
+    OBJECTIVES
+        - Replace the ':= TRUE' literals previously written by FB_ALI, which
+          turned the butterfly-valve interlock into a permanent bypass.
+        - Fail safe: an invalid pressure reading returns FALSE, so the valve
+          loses its enable and holds position.
+        - Require valid pressure feedback on both sides of the butterfly valve
+          before it moves, because the valve exists to regulate the pressure
+          difference between those two volumes.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Function created while removing the hard-coded TRUE permits from
+            FB_ALI (audit finding #456, convention conv_0121ae615346).
+*)
+FUNCTION F_PropValve_ILK : BOOL
+VAR_INPUT
+    i_xNozzleBoxPressOK : BOOL; // Nozzle box gauge reading valid (ST_VG.xPRESS_OK)
+    i_xSkimmerPressOK : BOOL; // Skimmer gauge reading valid (ST_VG.xPRESS_OK)
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* The butterfly valve regulates the pressure difference between the nozzle
+   box and the skimmer volume; it may only move while both readings are valid,
+   otherwise it would be driven without any pressure feedback. *)
+F_PropValve_ILK := i_xNozzleBoxPressOK AND i_xSkimmerPressOK;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

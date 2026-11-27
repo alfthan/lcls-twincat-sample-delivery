@@ -1,20 +1,72 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4022.18">
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.18">
   <POU Name="FB_BronkhorstMFM" Id="{6583b79d-8f50-416f-b9a8-da0bf6f716a8}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_BronkhorstMFM
+    <Declaration><![CDATA[(*
+    FB_BronkhorstMFM - Bronkhorst mass flow meter/controller interface.
+
+    PURPOSE
+        Publishes the process data of one Bronkhorst thermal mass flow
+        meter/controller (stMFM) and owns its flow setpoint command.
+
+    USAGE
+        Instantiate once per meter. The caller must wire i_xILK from a
+        single-purpose F_BronkhorstMFM_ILK function; stMFM carries the pytmc
+        interface (Unit / Flow / Setpoint).
+
+    OBJECTIVES
+        - Encapsulate the meter's I/O, data and setpoint handling in one block.
+        - Externalise interlocks: this reusable block never evaluates a site
+          condition. It honours the permit it is handed and forces a zero-flow
+          command while that permit is FALSE, so no other block can bypass it.
+        - Remember the operator's last requested flow so the command can be
+          restored once the permit returns.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Added the external interlock permit input i_xILK and the setpoint
+            gate; the block previously had an empty VAR_INPUT, so no caller
+            could supply a permit (audit finding #1159, convention
+            conv_0121ae615346).
+*)
+FUNCTION_BLOCK FB_BronkhorstMFM
 VAR_INPUT
+    i_xILK : BOOL := FALSE; // External interlock permit; wire to F_BronkhorstMFM_ILK(). Defaults FALSE (fail safe).
 END_VAR
 VAR_OUTPUT
+    q_xILK_OK : BOOL; // TRUE when the permit is present and the flow command is unfettered
 END_VAR
 VAR
-        {attribute 'pytmc' := '
+    {attribute 'pytmc' := '
             pv:
          '}
-        stMFM	:	ST_BhElFlow;
+    stMFM : ST_BhElFlow;
+
+    rSetpointReq : REAL; // Operator flow setpoint, retained while the permit is FALSE
+    xSetpointHeld : BOOL; // TRUE while rSetpointReq holds a setpoint that must be restored
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[]]></ST>
+      <ST><![CDATA[(*
+    External interlock permit gate.
+
+    The flow setpoint is the only device command this block owns. While the
+    permit is FALSE the commanded flow is held at zero; the operator's last
+    non-zero request is remembered and re-applied once the permit returns.
+*)
+IF NOT i_xILK THEN
+    IF stMFM.q_rSetpoint <> 0.0 THEN
+        // Remember what was asked for before forcing the safe command
+        rSetpointReq := stMFM.q_rSetpoint;
+        xSetpointHeld := TRUE;
+    END_IF
+    stMFM.q_rSetpoint := 0.0; // Safe zero-flow command
+ELSIF xSetpointHeld THEN
+    // Permit restored: re-apply the setpoint the operator asked for
+    stMFM.q_rSetpoint := rSetpointReq;
+    xSetpointHeld := FALSE;
+END_IF
+
+q_xILK_OK := i_xILK;]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>

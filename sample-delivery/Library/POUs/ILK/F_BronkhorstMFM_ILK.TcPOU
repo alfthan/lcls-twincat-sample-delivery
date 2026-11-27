@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="F_BronkhorstMFM_ILK" Id="{3f1a5d70-0b2c-4d51-9a64-7c11e2b90a03}" SpecialFunc="None">
+    <Declaration><![CDATA[(*
+    F_BronkhorstMFM_ILK - site interlock permit for FB_BronkhorstMFM.
+
+    PURPOSE
+        Single home for every interlock condition that permits a Bronkhorst
+        mass flow meter/controller to accept a non-zero flow setpoint.
+
+    USAGE
+        Evaluated by the deployment that owns the meter and wired into
+        FB_BronkhorstMFM.i_xILK. The block itself never evaluates a site
+        condition; it forces the flow command to zero whenever this permit is
+        FALSE.
+
+    OBJECTIVES
+        - Replace the previous design, where the reusable block had no permit
+          input at all and nothing could block a flow command.
+        - Fail safe: an unhealthy gas panel node returns FALSE, so the commanded
+          flow is held at zero.
+        - Keep the condition in one function so it can be reviewed and tested
+          without instantiating the meter.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Function created while adding the external interlock permit to
+            FB_BronkhorstMFM (audit finding #1159, convention conv_0121ae615346).
+*)
+FUNCTION F_BronkhorstMFM_ILK : BOOL
+VAR_INPUT
+    i_xPanelFieldbusOK : BOOL; // Gas panel EtherCAT sync unit healthy (ST_M3DeviceBaseIO.i_SyncUnitWC)
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* The meters are fed from the gas panel; while that panel's EtherCAT sync
+   unit is down neither its valves nor its flow readbacks can be trusted, so a
+   flow setpoint must not be issued. *)
+F_BronkhorstMFM_ILK := i_xPanelFieldbusOK;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

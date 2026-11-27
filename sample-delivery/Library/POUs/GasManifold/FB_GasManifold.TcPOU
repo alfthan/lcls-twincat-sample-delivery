@@ -1,10 +1,41 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4022.18">
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.18">
   <POU Name="FB_GasManifold" Id="{3d202d8b-0a18-4f2e-b99b-42b241e9fd74}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_GasManifold
+    <Declaration><![CDATA[(*
+    FB_GasManifold - seven-valve sample gas manifold.
+
+    PURPOSE
+        Owns the I/O and per-valve control structures of one sample-delivery
+        gas manifold and drives the FB_ManiValve block of every valve.
+
+    USAGE
+        Instantiate once per manifold. The caller must wire i_xILK from a
+        single-purpose F_GasManifold_ILK function; stBaseIO / stValve carry the
+        pytmc interface.
+
+    OBJECTIVES
+        - Encapsulate the manifold's I/O, valve data and run logic in one block.
+        - Externalise interlocks: the manifold block never evaluates nor forces
+          a permit. It propagates the caller's permit to every valve structure,
+          so a valve can only be opened while that permit is TRUE.
+        - Fail safe: i_xILK defaults to FALSE, which holds every valve closed.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Replaced the unconditional 'stValve[idx].xILK := TRUE' with the
+            external interlock permit input i_xILK (audit finding #505,
+            convention conv_0121ae615346).
+*)
+FUNCTION_BLOCK FB_GasManifold
 VAR_INPUT
+    {attribute 'pytmc' := '
+        pv: Ilk
+        io: i
+     '}
+    i_xILK : BOOL := FALSE; // Manifold interlock permit; wire to F_GasManifold_ILK(). Defaults FALSE (fail safe).
 END_VAR
 VAR_OUTPUT
+    q_xILK_OK : BOOL; // TRUE when the manifold is permitted to drive its valves
 END_VAR
 VAR
     {attribute 'pytmc' := '
@@ -25,8 +56,13 @@ VAR CONSTANT
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[FOR idx := 1 to MANIFOLD_VALVES DO
-    stValve[idx].xILK := TRUE; // these valves have no interlock
+      <ST><![CDATA[q_xILK_OK := i_xILK;
+
+FOR idx := 1 to MANIFOLD_VALVES DO
+    (* Propagate the external interlock permit. Site-specific per-valve
+       conditions belong in F_GasManifold_ILK at the caller; this reusable
+       block must never force a valve permit TRUE. *)
+    stValve[idx].xILK := i_xILK;
     fbValve[idx](iq_valve := stValve[idx]);
 END_FOR]]></ST>
     </Implementation>

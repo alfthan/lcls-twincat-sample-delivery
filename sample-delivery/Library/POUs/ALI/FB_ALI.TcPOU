@@ -1,7 +1,31 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
   <POU Name="FB_ALI" Id="{04310620-f9dd-4995-a4e2-9924022b4884}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_ALI
+    <Declaration><![CDATA[(*
+    FB_ALI - aerodynamic lens injector.
+
+    PURPOSE
+        Owns the vacuum gauges, the butterfly pressure-control valve and the
+        three manipulator axes of one aerodynamic lens injector, published
+        through the iq_Injector structure.
+
+    USAGE
+        Instantiate once per injector. This block is the *caller* of the
+        reusable device blocks, so it is the place where the site interlock
+        permits are evaluated.
+
+    OBJECTIVES
+        - Wire every reusable device block's interlock permit input from a
+          single-purpose F_<Device>_ILK function instead of a forced TRUE.
+        - Keep the injector's interlock rules readable in one place rather than
+          hidden inside FB_PropValve / FB_ManipAxis.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Replaced the ':= TRUE' interlock literals with F_PropValve_ILK and
+            F_ManipAxis_ILK (audit finding #456, convention conv_0121ae615346).
+*)
+FUNCTION_BLOCK FB_ALI
 VAR_IN_OUT
     iq_Injector	:	ST_ALI;
 END_VAR
@@ -23,6 +47,8 @@ VAR
     fbPropValve		:	FB_PropValve;
 
     ftHotPlug	:	F_TRIG;
+
+    xManipAxisILK	:	BOOL; // Manipulator interlock permit evaluated below
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -40,14 +66,22 @@ fb925ALINB2(VG:=iq_Injector.stSkimmerVG);
 fb722ALINB3(VG:=iq_Injector.stRelaxVG);
 
 (* Butterfly valve *)
-iq_Injector.stPropVlv.xInterlock := TRUE;
+(* Both permits come from the dedicated interlock function - never a literal. *)
+iq_Injector.stPropVlv.xInterlock := F_PropValve_ILK(
+    i_xNozzleBoxPressOK := iq_Injector.stNozzleBoxVG.xPRESS_OK,
+    i_xSkimmerPressOK := iq_Injector.stSkimmerVG.xPRESS_OK);
 iq_Injector.stPropVlv.i_rPressRB := iq_Injector.stSkimmerVG.rPRESS;
-fbPropValve(stPropValve:=iq_Injector.stPropVlv, i_xExtIlk := TRUE);
+fbPropValve(stPropValve := iq_Injector.stPropVlv,
+            i_xExtIlk := iq_Injector.stPropVlv.xInterlock);
 
 (* Manipulator *)
-fbManipX(iq_ManipAxis:=iq_Injector.axisX, i_xHotPlug:=ftHotPlug.Q);
-fbManipY(iq_ManipAxis:=iq_Injector.axisY, i_xHotPlug:=ftHotPlug.Q);
-fbManipZ(iq_ManipAxis:=iq_Injector.axisZ, i_xHotPlug:=ftHotPlug.Q);
+(* The axis permit is derived in the dedicated interlock function. *)
+xManipAxisILK := F_ManipAxis_ILK(
+    i_xNozzleBoxPressOK := iq_Injector.stNozzleBoxVG.xPRESS_OK,
+    i_xSkimmerPressOK := iq_Injector.stSkimmerVG.xPRESS_OK);
+fbManipX(iq_ManipAxis:=iq_Injector.axisX, i_xHotPlug:=ftHotPlug.Q, i_xILK:=xManipAxisILK);
+fbManipY(iq_ManipAxis:=iq_Injector.axisY, i_xHotPlug:=ftHotPlug.Q, i_xILK:=xManipAxisILK);
+fbManipZ(iq_ManipAxis:=iq_Injector.axisZ, i_xHotPlug:=ftHotPlug.Q, i_xILK:=xManipAxisILK);
 F_AxisRef_To_MSTA(stManipAxis:=iq_Injector.axisX, MSTA=>iq_Injector.axisX.uiMsta);
 F_AxisRef_To_MSTA(stManipAxis:=iq_Injector.axisY, MSTA=>iq_Injector.axisY.uiMsta);
 F_AxisRef_To_MSTA(stManipAxis:=iq_Injector.axisZ, MSTA=>iq_Injector.axisZ.uiMsta);]]></ST>

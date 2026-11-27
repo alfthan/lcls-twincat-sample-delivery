@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="F_GasManifold_ILK" Id="{3f1a5d70-0b2c-4d51-9a64-7c11e2b90a02}" SpecialFunc="None">
+    <Declaration><![CDATA[(*
+    F_GasManifold_ILK - site interlock permit for FB_GasManifold.
+
+    PURPOSE
+        Single home for every interlock condition that permits the
+        sample-delivery gas manifold to drive its seven NC sample valves.
+
+    USAGE
+        Evaluated by the deployment that owns the manifold and wired into
+        FB_GasManifold.i_xILK. FB_GasManifold is a reusable device block and
+        never evaluates (nor forces) a permit itself: it propagates whatever
+        this function returns to every one of its valve structures.
+
+    OBJECTIVES
+        - Replace the previous unconditional 'xILK := TRUE' inside the manifold
+          block with an explicit, reviewable site condition.
+        - Fail safe: an unhealthy gas manifold EtherCAT node returns FALSE, so
+          every valve is held closed (these are normally-open valves whose DO
+          closes them).
+        - Keep the condition in one function so it can be reviewed and tested
+          without instantiating the manifold.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Function created while removing the hard-coded TRUE permit from
+            FB_GasManifold (audit finding #505, convention conv_0121ae615346).
+*)
+FUNCTION F_GasManifold_ILK : BOOL
+VAR_INPUT
+    i_xPanelFieldbusOK : BOOL; // Gas manifold EtherCAT sync unit healthy (ST_M3DeviceBaseIO.i_SyncUnitWC)
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* The manifold may only drive its valves while its EtherCAT sync unit is
+   alive, otherwise the valve DOs and readbacks cannot be trusted. *)
+F_GasManifold_ILK := i_xPanelFieldbusOK;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

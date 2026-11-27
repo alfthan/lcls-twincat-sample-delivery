@@ -1,0 +1,77 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="F_RCC_ILK" Id="{3f1a5d70-0b2c-4d51-9a64-7c11e2b90a01}" SpecialFunc="None">
+    <Declaration><![CDATA[(*
+    F_RCC_ILK - site interlock permit for the RCC valve state machine.
+
+    PURPOSE
+        Single home for every interlock condition that permits the RCC rapid
+        cycle to open one of its four ChemRIX valves (CRIX-RCC-VRC-01..04) and
+        to cycle at all (permitted by the CRIX-RCC-GCP-01 pressure gauge).
+
+    USAGE
+        Evaluated once per cycle in FB_RCC, which hands the resulting ST_RCC_ILK
+        to FB_RCC_SM.i_stILK. FB_RCC_SM is a reusable device block: it never
+        evaluates a site condition itself, it only honours the permit it is
+        given.
+
+    OBJECTIVES
+        - Define the RCC interlock rules in one place so they can be reviewed
+          and unit tested independently of the state machine.
+        - Return FALSE (not permitted) whenever a prerequisite cannot be
+          evaluated, i.e. fail-safe.
+        - Reproduce exactly the rules FB_RCC_SM used to embed:
+            VRC-01 / VRC-04 may open only when the two opposite valves are closed.
+            VRC-02 may open only when VRC-01 and VRC-04 are closed.
+            VRC-03 may open only when the CRIX-RCC-GCP-01 reading is below the
+              configured interlock setpoint, the gauge reading is valid, and
+              VRC-01 and VRC-04 are closed.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Function created; the rules were moved verbatim out of FB_RCC_SM
+            (audit finding #918, convention conv_0121ae615346).
+*)
+FUNCTION F_RCC_ILK : ST_RCC_ILK
+VAR_IN_OUT
+    stVRC01 : ST_VRC; // CRIX-RCC-VRC-01 valve structure
+    stVRC02 : ST_VRC; // CRIX-RCC-VRC-02 valve structure
+    stVRC03 : ST_VRC; // CRIX-RCC-VRC-03 valve structure
+    stVRC04 : ST_VRC; // CRIX-RCC-VRC-04 valve structure
+    stGCP01 : ST_VG; // CRIX-RCC-GCP-01 pressure gauge structure
+END_VAR
+VAR_INPUT
+    i_rGCP01InterlockSetpoint : REAL; // Operator interlock setpoint for VRC-03 (ST_RCC.RCC_GCP_01_INTERLOCK_SETPOINT)
+END_VAR
+VAR
+    rGCP01IlkConv : REAL; // Setpoint converted to the unit used by stGCP01.rPRESS
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* Convert the operator setpoint the same way FB_RCC_SM used to. *)
+rGCP01IlkConv := i_rGCP01InterlockSetpoint * 1E2;
+
+(* VRC-01 and VRC-04 may open only when VRC-02 and VRC-03 are closed. *)
+F_RCC_ILK.xVRC01_OPEN_OK := (stVRC02.i_xClsLS AND NOT stVRC02.q_xOPN_DO) AND
+                             (stVRC03.i_xClsLS AND NOT stVRC03.q_xOPN_DO);
+
+(* VRC-02 may open only when VRC-01 and VRC-04 are closed. *)
+F_RCC_ILK.xVRC02_OPEN_OK := (stVRC01.i_xClsLS AND NOT stVRC01.q_xOPN_DO) AND
+                             (stVRC04.i_xClsLS AND NOT stVRC04.q_xOPN_DO);
+
+(* VRC-03 may open only when GCP-01 reads below the setpoint with a valid
+   reading, and VRC-01 and VRC-04 are closed. *)
+F_RCC_ILK.xVRC03_OPEN_OK := (stGCP01.rPRESS < rGCP01IlkConv AND stGCP01.xPRESS_OK) AND
+                             (stVRC01.i_xClsLS AND NOT stVRC01.q_xOPN_DO) AND
+                             (stVRC04.i_xClsLS AND NOT stVRC04.q_xOPN_DO);
+
+(* VRC-04 may open only when VRC-02 and VRC-03 are closed. *)
+F_RCC_ILK.xVRC04_OPEN_OK := (stVRC02.i_xClsLS AND NOT stVRC02.q_xOPN_DO) AND
+                             (stVRC03.i_xClsLS AND NOT stVRC03.q_xOPN_DO);
+
+(* Machine-level permit: without a valid GCP-01 pressure reading the drain
+   interlock above cannot be trusted, so the cycle may not run at all. *)
+F_RCC_ILK.xILK_OK := stGCP01.xPRESS_OK;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

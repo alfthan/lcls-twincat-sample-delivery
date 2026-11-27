@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="F_ManipAxis_ILK" Id="{3f1a5d70-0b2c-4d51-9a64-7c11e2b90a04}" SpecialFunc="None">
+    <Declaration><![CDATA[(*
+    F_ManipAxis_ILK - site interlock permit for FB_ManipAxis.
+
+    PURPOSE
+        Single home for every interlock condition that permits an
+        aerodynamic-lens-injector manipulator axis to be powered and moved.
+
+    USAGE
+        Evaluated by the deployment that owns the manipulator and wired into
+        FB_ManipAxis.i_xILK. The block never evaluates a site condition itself:
+        it drops MC_Power enable and refuses new move commands while this permit
+        is FALSE.
+
+    OBJECTIVES
+        - Replace the previous design, where the block powered and moved the
+          axis from iq_ManipAxis.xEnable / iq_ManipAxis.xStart alone and a move
+          could be commanded with no interlock at all.
+        - Fail safe: an invalid pressure reading returns FALSE, so the axis is
+          disabled and no move is accepted.
+        - Require valid injector pressure instrumentation before the
+          manipulator moves, so a move is never commanded blind into an unknown
+          vacuum state.
+
+    HISTORY
+        2026-11-27 / Scirix Agent
+            Function created while adding the external interlock permit to
+            FB_ManipAxis (audit finding #1167, convention conv_0121ae615346).
+*)
+FUNCTION F_ManipAxis_ILK : BOOL
+VAR_INPUT
+    i_xNozzleBoxPressOK : BOOL; // Nozzle box gauge reading valid (ST_VG.xPRESS_OK)
+    i_xSkimmerPressOK : BOOL; // Skimmer gauge reading valid (ST_VG.xPRESS_OK)
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* The manipulator may only be powered and moved while the injector pressure
+   instrumentation reports valid readings: without them the vacuum state of the
+   volume the axis moves through is unknown. *)
+F_ManipAxis_ILK := i_xNozzleBoxPressOK AND i_xSkimmerPressOK;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
