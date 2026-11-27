@@ -4,9 +4,11 @@
     <Declaration><![CDATA[FUNCTION_BLOCK FB_PropValve
 VAR_INPUT
     i_xExtIlk	:	BOOL;
+    i_tInitTimeout	:	TIME := T#10S;	(* Bound on the Init homing / drive-enable wait *)
 END_VAR
 VAR_OUTPUT
-    q_xError	:	BOOL;
+    q_xError	:	BOOL;			(* Latched fault, cleared by a new rising edge of stPropValve.xEnable *)
+    q_sErrorMsg	:	STRING;		(* Explicit diagnostic message for the latched fault *)
 END_VAR
 VAR_IN_OUT
     stPropValve	:	ST_PropValveMKS253;
@@ -30,6 +32,10 @@ VAR
     xReady	:	BOOL;
     rtReset: R_TRIG;
 
+    (* Init watchdog: the closed limit switch must be made and the drive enabled in bounded time *)
+    tonInitTimeout	:	TON;
+    xInitTimeout	:	BOOL;		(* Latched: Init did not complete within i_tInitTimeout *)
+
     UpperLimit : LREAL := 2000;
 END_VAR
 ]]></Declaration>
@@ -41,6 +47,13 @@ stPropValve.xEnable R= NOT xInterlock;
 
 
 rtReset(CLK:=stPropValve.xEnable);
+
+(* A new enable edge acknowledges and clears a latched Init fault *)
+IF rtReset.Q THEN
+    xInitTimeout := FALSE;
+    q_xError := FALSE;
+    q_sErrorMsg := '';
+END_IF
 
 (* The low limit switch was flakey, I added the filters *)
 tofLLSFilter(IN:=stPropValve.i_LLS);
@@ -67,10 +80,21 @@ ELSE
     eState := E_PropValveFBState.Init;
 END_IF
 
+(* Bound the Init wait. Only time it while the drive is actually commanded, so an
+   intentionally disabled valve is not reported as a fault. *)
+tonInitTimeout(IN := (eState = E_PropValveFBState.Init) AND mcPower.Enable, PT := i_tInitTimeout);
+IF tonInitTimeout.Q THEN
+    xInitTimeout := TRUE;
+    q_xError := TRUE;
+    q_sErrorMsg := 'Init timeout: closed limit switch not made or drive not enabled';
+END_IF
+
 CASE eState OF
     E_PropValveFBState.Init:
         //This state is reached at startup and after a reset
         //It seeks the closed limit switch and moves to hold
+        //This wait is bounded by tonInitTimeout: on expiry the fault is latched and
+        //the block is forced into the Error state through AnyError.
         stPropValve.ePVCtrlState := HMI_PropValveCtrlState.Hold;
         fbPID.i_Reset := TRUE;
         IF NOT tofLLSFilter.Q AND mcPower.Status THEN
@@ -124,7 +148,7 @@ mcJog(Axis:=stPropValve.stAxis, Mode:=E_JogMode.MC_JOGMODE_CONTINOUS);
 mcSmoothMover(Axis:=stPropValve.stAxis,
         Velocity:=stPropValve.lrMaxSpeed);
 
-AnyError := mcJog.Error OR mcPower.Error OR fbPID.q_Error OR mcSmoothMover.Error;
+AnyError := mcJog.Error OR mcPower.Error OR fbPID.q_Error OR mcSmoothMover.Error OR xInitTimeout;
 
 (* EPICS display of perc open *)
 stPropValve.q_iPercOpen := LREAL_TO_INT(100*stPropValve.stAxis.NcToPlc.ActPos / UpperLimit);

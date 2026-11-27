@@ -3,6 +3,13 @@
   <GVL Name="GVL_SAMPLE" Id="{b2864d8f-27b9-49d7-a36f-f3e6d25b7296}">
     <Declaration><![CDATA[VAR_GLOBAL
     g_xFirstPass: BOOL := TRUE;
+END_VAR
+
+VAR_GLOBAL CONSTANT
+    (* Maximum time the RCC sequencer may wait in DRAIN for VRC-03 to be allowed to open.
+       The condition depends on field limit switches and the GCP pressure signal, so a lost
+       condition must raise a fault instead of stalling the sequence forever. *)
+    g_tRccDrainTimeout	:	TIME := T#60S;
 END_VAR]]></Declaration>
   </GVL>
 </TcPlcObject>

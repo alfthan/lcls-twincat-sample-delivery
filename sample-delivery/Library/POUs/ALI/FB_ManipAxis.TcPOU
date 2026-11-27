@@ -4,6 +4,7 @@
     <Declaration><![CDATA[FUNCTION_BLOCK FB_ManipAxis
 VAR_INPUT
     i_xHotPlug	:	BOOL;
+    i_tInitTimeout	:	TIME := T#10S;	(* Bound on the drive-enable wait in Init *)
 END_VAR
 VAR_OUTPUT
     q_asResult: ARRAY [1..20] OF STRING;
@@ -24,6 +25,9 @@ VAR
     fbFormatString	:	FB_FormatString;
 
     xInitComplete	:	BOOL := FALSE;
+
+    (* Init watchdog: the drive must report Status within i_tInitTimeout *)
+    tonInitTimeout	:	TON;
 
     imcBlockIndex: INT;
 
@@ -68,6 +72,8 @@ CASE iq_ManipAxis.eState OF
     (* Start by initializing the motor axis *)
     mcPower.Enable := iq_ManipAxis.xEnable;
     iq_ManipAxis.rReqAbsPos := iq_ManipAxis.rActPos; //do this when the PLC comes up so we don't just lose the position if we tweak
+    (* Bound the drive-enable wait: a drive that never reports Status must not hang the block *)
+    tonInitTimeout(IN := mcPower.Enable AND NOT mcPower.Status, PT := i_tInitTimeout);
     IF mcPower.Status THEN //success
         xInitComplete := TRUE;
         q_asResult[indexResult] := 'Motor init success';
@@ -76,6 +82,11 @@ CASE iq_ManipAxis.eState OF
     ELSIF mcPower.Error THEN
         mcPower.Enable := FALSE;
         fbFormatString(sFormat:='Init mcPower Error: %s', arg1:=F_UDINT(mcPower.ErrorID));
+        ActError();
+    ELSIF tonInitTimeout.Q THEN
+        (* The drive never enabled: count the request as failed with an explicit message *)
+        mcPower.Enable := FALSE;
+        fbFormatString(sFormat:='Init timeout: drive did not enable within %s', arg1:=TIME_TO_STRING(i_tInitTimeout));
         ActError();
     END_IF
 
@@ -91,8 +102,17 @@ CASE iq_ManipAxis.eState OF
         mcHalt.Execute S= iq_ManipAxis.xStop;
         mcHalt.Execute R= mcHalt.Busy;
         iq_ManipAxis.xStop R= mcHalt.Busy;
+        (* A failed or timed out move is reported with an explicit message, not just a state jump *)
         IF mcPower.Error OR mcSmoothMover.Error THEN
-            iq_ManipAxis.eState:=Error;
+            IF mcSmoothMover.Timeout THEN
+                fbFormatString(sFormat:='MoveEnabled timeout: move did not complete within %s', arg1:=TIME_TO_STRING(mcSmoothMover.i_tMoveTimeout));
+            ELSIF mcSmoothMover.Error THEN
+                fbFormatString(sFormat:='MoveEnabled error: motion command reported an error');
+            ELSE
+                fbFormatString(sFormat:='MoveEnabled error: mcPower reported an error');
+            END_IF
+            mcSmoothMover.Enable := FALSE;
+            ActError();
         END_IF
 
 

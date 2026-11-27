@@ -31,6 +31,7 @@ VAR_IN_OUT
 END_VAR
 VAR
     tTimer1 : TON;
+    tDrainWatchdog	:	TON;	(* Bounds the DRAIN wait for RCC_VRC_03_OPEN_OK *)
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -55,6 +56,10 @@ RCC_VRC_04_OPEN_OK := ( stRCC_VRC_02.i_xClsLS AND NOT stRCC_VRC_02.q_xOPN_DO ) A
 IF bStop THEN
     eCurrentState:= E_RCC_STATES.INIT;
 END_IF
+
+(* DRAIN watchdog, evaluated on the state held since the last scan. One call per cycle,
+   so the wait is bounded and the timer restarts whenever DRAIN is re-entered. *)
+tDrainWatchdog(IN := (eCurrentState = E_RCC_STATES.DRAIN), PT:= GVL_SAMPLE.g_tRccDrainTimeout);
 
  CASE eCurrentState OF
     E_RCC_STATES.ERROR: // SOMETHING WENT WRONG
@@ -98,7 +103,8 @@ END_IF
         END_IF
 
      E_RCC_STATES.DRAIN:	// DRAIN_1 2
-        // THIS MIGHT CAUSE THE RCC TO STALL IF THIS CONDITION IS NEVER MET
+        // The wait for RCC_VRC_03_OPEN_OK is bounded by tDrainWatchdog: the drain condition
+        // depends on field limit switches and the GCP pressure signal.
 
         IF (NOT stRCC_GCP_01.xPRESS_OK) THEN
             eCurrentState := E_RCC_STATES.ERROR;
@@ -109,6 +115,10 @@ END_IF
             IF bRunClean THEN stRCC_VRC_02.q_xOPN_DO := FALSE; END_IF
             stRCC_VRC_03.q_xOPN_DO := TRUE;
             eCurrentState := E_RCC_STATES.DRAIN_CHECK;
+        ELSIF tDrainWatchdog.Q THEN
+            // The drain condition was never met: fail loudly instead of stalling forever
+            bError := TRUE;
+            eCurrentState := E_RCC_STATES.ERROR;
         END_IF
 
     E_RCC_STATES.DRAIN_CHECK:	// CHECK IF WE ARE DON DRAINING 3

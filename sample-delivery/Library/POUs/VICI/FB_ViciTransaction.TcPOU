@@ -51,6 +51,7 @@ IF rtExecute.Q THEN
     q_sResult:= '';
     q_sLastSentString[iStringTx] := '';
     q_sLastReceivedString[iStringRx]:= '';
+    tonTimeout(IN:= FALSE); (* restart the timeout timer for this transaction *)
     iStep := 10;
 END_IF
 
@@ -76,6 +77,8 @@ IF iStringTx = 40 THEN iStringTx := 1; ELSE iStringTx := iStringTx +1; END_IF
         iStep := iStep + 10;
 
     20: (* Finish sending the String *)
+        (* Bound the transmit wait: a TX buffer that never drains must not hang the transaction *)
+        tonTimeout(IN:= TRUE, PT:= i_tTimeOut);
         IF fbSendString.Busy THEN
             fbSendString( SendString:= sSendString, TXbuffer:= iq_stSerialTXBuffer );
         ELSIF fbSendString.Error <> 0 THEN
@@ -88,10 +91,15 @@ IF iStringTx = 40 THEN iStringTx := 1; ELSE iStringTx := iStringTx +1; END_IF
                 q_xDone:= TRUE;
                 iStep := 100;
             ELSE
+                tonTimeout(IN:= FALSE); (* restart the reply timer used in step 30 *)
                 iStep:=iStep + 10;
             END_IF
         END_IF
-        tonTimeout(IN:= FALSE);
+        IF fbSendString.Busy AND tonTimeout.Q THEN
+            q_sResult := 'Serial device transmitter stayed busy past the timeout period';
+            q_xTimeout := TRUE;
+            iStep := 9000;
+        END_IF
 
     30: (* Get reply *)
         fbReceiveString(

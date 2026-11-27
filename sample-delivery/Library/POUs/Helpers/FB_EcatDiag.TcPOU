@@ -5,9 +5,14 @@
 VAR_INPUT
     i_AMSNetId	:	AMSNETID; //Connect this to an AMSNETID structure as a PLC input. Then link the input to the AMSNETID name in the master info.
     i_xFirstPass	:	BOOL;
+    i_xReset	:	BOOL; //Acknowledge and clear a latched read fault
+    i_tTimeout	:	TIME := T#5S; //Bound on a single asynchronous slave-state read
 END_VAR
 VAR_OUTPUT
     q_xAllStatesGood	:	BOOL;
+    q_xError	:	BOOL; //Latched: the slave-state read failed or did not complete in time
+    q_xTimeout	:	BOOL; //Latched: the read did not complete within i_tTimeout
+    q_sResult	:	STRING; //Explicit diagnostic message for the latched fault
 END_VAR
 VAR
     sNetId : T_AmsNetId;
@@ -15,6 +20,7 @@ VAR
 
     fbGetAllSlaveStates     : FB_EcGetAllSlaveStates;
     ftReset	: F_TRIG;
+    tonWatchdog	:	TON; //Bounds the asynchronous slave-state read
 
     iterator: INT;
 END_VAR
@@ -29,16 +35,41 @@ fbGetAllSlaveStates.bExecute := ftReset.Q;
 fbGetAllSlaveStates(sNetId:=sNetId, pStateBuf := ADR(astTermStates), cbBufLen:=SIZEOF(astTermStates));
 //Keep checking...
 
+//Acknowledge a latched read fault
+IF i_xReset THEN
+    q_xError := FALSE;
+    q_xTimeout := FALSE;
+    q_sResult := '';
+END_IF
+
+//Bound the asynchronous read: a hung fieldbus read must not go unnoticed
+tonWatchdog(IN := fbGetAllSlaveStates.bBusy, PT := i_tTimeout);
+
 //Cycle through each entry in the array and check if we have anyone not in OP and that the link state is good.
 // If so, then set our global IO bad boolean.
+q_xAllStatesGood := TRUE;
 IF fbGetAllSlaveStates.nSlaves > 0 THEN
-    q_xAllStatesGood := TRUE;
 FOR iterator := 1 TO (fbGetAllSlaveStates.nSlaves -1) BY 1
     DO
     IF NOT( (astTermStates[iterator].deviceState = EC_DEVICE_STATE_OP) AND (astTermStates[iterator].linkState = EC_LINK_STATE_OK)) THEN
         q_xAllStatesGood := FALSE;
     END_IF
 END_FOR
+ELSE
+    //No slave data has been read yet: report bad rather than trusting stale data
+    q_xAllStatesGood := FALSE;
+END_IF
+
+//A failed or timed out read is a fault and never counts as healthy IO
+IF fbGetAllSlaveStates.bError THEN
+    q_xError := TRUE;
+    q_xAllStatesGood := FALSE;
+    q_sResult := CONCAT('EtherCAT slave state read failed with error: ', UDINT_TO_STRING(fbGetAllSlaveStates.nErrId));
+ELSIF tonWatchdog.Q THEN
+    q_xError := TRUE;
+    q_xTimeout := TRUE;
+    q_xAllStatesGood := FALSE;
+    q_sResult := CONCAT('EtherCAT slave state read did not complete within ', TIME_TO_STRING(i_tTimeout));
 END_IF]]></ST>
     </Implementation>
     <ObjectProperties />

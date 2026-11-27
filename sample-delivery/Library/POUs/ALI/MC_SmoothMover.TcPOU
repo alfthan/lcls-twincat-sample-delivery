@@ -10,11 +10,14 @@ VAR_INPUT
     ReqAbsPos : LREAL; //A
     Enable	:	BOOL; //While true the block will accept new positions and attempt to move to them if they are different
     Execute	:	BOOL; //Will retry a move if the target position is the same
+    i_tMoveTimeout	:	TIME := T#30S; //Bound on a single move, counted while the axis is busy
 END_VAR
 VAR_OUTPUT
     Done	:	BOOL;
     Busy	:	BOOL;
     Error	:	BOOL;
+    Timeout	:	BOOL; //Latched: the commanded move did not complete within i_tMoveTimeout
+    q_sErrorMsg	:	STRING; //Explicit diagnostic message for the latched fault
 END_VAR
 VAR
     mcMoveAbsolute : ARRAY[1..2] OF MC_MoveAbsolute;
@@ -22,6 +25,11 @@ VAR
     imcBlockIndex: INT;
     ReqAbsPosPrevious	: LREAL;
     rtExecute: R_TRIG;
+
+    (* Move watchdog: a move that never completes must not leave the caller waiting forever *)
+    tonMoveTimeout	:	TON;
+    xMoveBusy		:	BOOL;
+    xRestartWatchdog	:	BOOL;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -36,7 +44,13 @@ can be used to retry a move.
 
 rtExecute(CLK:=Execute);
 
+xRestartWatchdog := FALSE;
+
 IF ( (ReqAbsPos <> ReqAbsPosPrevious AND Enable) OR rtExecute.Q) THEN
+            (* A new command re-arms the move watchdog and clears a latched timeout *)
+            Timeout := FALSE;
+            q_sErrorMsg := '';
+            xRestartWatchdog := TRUE;
             mcMoveAbsolute[imcBlockIndex].Execute := FALSE;
             imcBlockIndex := imcBlockIndex + 1;
             IF imcBlockIndex >2 THEN imcBlockIndex := 1; END_IF
@@ -54,9 +68,17 @@ FOR iI := 1 TO 2 DO
     mcMoveAbsolute[iI](Axis := Axis, Velocity:=Velocity, BufferMode:=MC_Aborting);
 END_FOR
 
-Error := mcMoveAbsolute[1].Error OR mcMoveAbsolute[2].Error;
+(* Bound the move: expiry of the watchdog counts the request as failed *)
+xMoveBusy := mcMoveAbsolute[1].Busy OR mcMoveAbsolute[2].Busy;
+tonMoveTimeout(IN := xMoveBusy AND NOT Timeout AND NOT xRestartWatchdog, PT := i_tMoveTimeout);
+IF tonMoveTimeout.Q THEN
+    Timeout := TRUE;
+    q_sErrorMsg := 'Move timeout: the axis did not complete the commanded move';
+END_IF
+
+Error := mcMoveAbsolute[1].Error OR mcMoveAbsolute[2].Error OR Timeout;
 Done S= mcMoveAbsolute[1].Done OR mcMoveAbsolute[2].Done;
-Busy := mcMoveAbsolute[1].Busy OR mcMoveAbsolute[2].Busy;
+Busy := xMoveBusy;
 Done R= Busy OR Error;]]></ST>
     </Implementation>
   </POU>
