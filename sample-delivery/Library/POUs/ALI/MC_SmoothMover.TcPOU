@@ -19,7 +19,7 @@ END_VAR
 VAR
     mcMoveAbsolute : ARRAY[1..2] OF MC_MoveAbsolute;
     iI: INT;
-    imcBlockIndex: INT;
+    imcBlockIndex: INT := 1; //Index of the mcMoveAbsolute element that currently accepts commands; must stay in 1..2
     ReqAbsPosPrevious	: LREAL;
     rtExecute: R_TRIG;
 END_VAR
@@ -29,10 +29,42 @@ END_VAR
 2017-8-30
 A. Wallace
 
-Enable means the block will always aquire new positions as they are updated. Execute
-can be used to retry a move.
+USAGE
+Called every PLC cycle with Axis bound to the axis to move. Enable means the block
+will always aquire new positions as they are updated. Execute can be used to retry
+a move. Positions are handed to a pair of MC_MoveAbsolute instances in turn so a
+new target aborts the previous move without waiting for it to finish.
+
+OBJECTIVES
+- Never dereference Axis before it has been validated: TwinCAT allows a call with
+  an unbound VAR_IN_OUT, and passing an invalid AXIS_REF into MC_MoveAbsolute
+  faults the task or writes through invalid memory.
+- Never index mcMoveAbsolute outside ARRAY[1..2]: imcBlockIndex must point at a
+  real element before it is used as a subscript.
+
+HISTORY
+2017-08-30 / A. Wallace
+   Created.
+2026-11-27 / Scirix Agent
+   Added the __ISVALIDREF(Axis) guard, the index clamp, and a valid initial value
+   for imcBlockIndex (was 0, which indexed outside ARRAY[1..2]).
 *)
 
+// Validate the VAR_IN_OUT axis reference before any dereference. An unbound
+// reference exits here with the outputs in their safe state instead of faulting
+// the task on the MC_MoveAbsolute call below.
+IF NOT __ISVALIDREF(Axis) THEN
+    Done := FALSE;
+    Busy := FALSE;
+    Error := FALSE;
+    RETURN;
+END_IF
+
+// Never index mcMoveAbsolute outside ARRAY[1..2]: recover the buffering index
+// before it is used as a subscript.
+IF imcBlockIndex < 1 OR imcBlockIndex > 2 THEN
+    imcBlockIndex := 1;
+END_IF
 
 rtExecute(CLK:=Execute);
 
