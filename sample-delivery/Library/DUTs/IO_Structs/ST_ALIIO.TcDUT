@@ -1,7 +1,17 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4020.12">
   <DUT Name="ST_ALIIO" Id="{4882ef88-4d39-45a1-bcad-049669e85bd0}">
-    <Declaration><![CDATA[TYPE ST_ALIIO EXTENDS ST_M3DeviceBaseIO :
+    <Declaration><![CDATA[(* ST_ALIIO - EtherCAT I/O image of the ALI (aerodynamic lens injector) cluster.
+   Members are placeholders (AT %I*/%Q*) that the machine project binds to their
+   terminal with 'TcLinkTo'; the channel number in a member name is index-local
+   to this struct and does not repeat the terminal's own channel numbering.
+   Terminals covered: ALI_Gauges (EP3174-0002, 4 ch analog input), ALI_DIO
+   (EP2338-0001, 8 DI / 8 DO 24 V DC) and the PCM modules (EP4374-0002, 2 analog
+   in + 2 analog out pressure control).
+   History: 2026-11-28 / Scirix Agent
+       Added an inline meaning/units comment to every member; documentation only,
+       no behaviour change (audit finding #432, convention conv_321640e095c0). *)
+TYPE ST_ALIIO EXTENDS ST_M3DeviceBaseIO :
 STRUCT
     //EP7041
     //EP7041
@@ -9,29 +19,29 @@ STRUCT
     //EP5101
 
     //EP3174 Vacuum Gauges, misc analog
-    i_EP3174_Ch1	AT	%I*	:	INT;
-    i_EP3174_Ch2	AT	%I*	:	INT;
-    i_EP3174_Ch3	AT	%I*	:	INT;
-    i_EP3174_Ch4	AT	%I*	:	INT;
+    i_EP3174_Ch1	AT	%I*	:	INT;	// ch1 nozzle-box MKS 925 gauge: raw ADC counts (FB_9XX converts with 30518 counts = 10 V, log output); copied to stNozzleBoxVG.iPRESS_R and scaled to Torr in FB_9XX
+    i_EP3174_Ch2	AT	%I*	:	INT;	// ch2 skimmer MKS 925 gauge: raw ADC counts (FB_9XX converts with 30518 counts = 10 V, log output); copied to stSkimmerVG.iPRESS_R and scaled to Torr in FB_9XX
+    i_EP3174_Ch3	AT	%I*	:	INT;	// ch3 relaxation-chamber MKS 722 baratron: raw ADC counts (FB_GCM converts with 32767 counts = 10 V, linear); copied to stRelaxVG.iPRESS_R and scaled to Torr in FB_GCM
+    i_EP3174_Ch4	AT	%I*	:	INT;	// ch4 spare analog input of the ALI_Gauges terminal: raw ADC counts (0..32767 ~= 0..10 V); no consumer in this repository
 
     //EP7041 - Prop valve
 
     //EP2338 Misc DIO
-    q_EP2338_Ch1	AT	%Q*	:	BOOL;
-    q_EP2338_Ch2	AT	%Q*	:	BOOL;
-    q_EP2338_Ch3	AT	%Q*	:	BOOL;
-    q_EP2338_Ch4	AT	%Q*	:	BOOL;
+    q_EP2338_Ch1	AT	%Q*	:	BOOL;	// struct output 1 of ALI_DIO, EP2338-0001 DO (terminal channels 9..16): 24 V DC / 0.5 A, TRUE = energised, FALSE = de-energised/safe
+    q_EP2338_Ch2	AT	%Q*	:	BOOL;	// struct output 2 of ALI_DIO, EP2338-0001 DO (terminal channels 9..16): 24 V DC / 0.5 A, TRUE = energised, FALSE = de-energised/safe
+    q_EP2338_Ch3	AT	%Q*	:	BOOL;	// struct output 3 of ALI_DIO, EP2338-0001 DO (terminal channels 9..16): 24 V DC / 0.5 A, TRUE = energised, FALSE = de-energised/safe
+    q_EP2338_Ch4	AT	%Q*	:	BOOL;	// struct output 4 of ALI_DIO, EP2338-0001 DO (terminal channels 9..16): 24 V DC / 0.5 A, TRUE = energised, FALSE = de-energised/safe
 
-    i_EP2338_Ch5	AT	%I*	:	BOOL;
-    i_EP2338_Ch6	AT	%I*	:	BOOL;
-    i_EP2338_Ch7	AT	%I*	:	BOOL;
-    i_EP2338_Ch8	AT	%I*	:	BOOL;
+    i_EP2338_Ch5	AT	%I*	:	BOOL;	// struct input 1 of ALI_DIO, EP2338-0001 DI (terminal channels 1..8): 24 V DC, TRUE = 24 V present; on sds-m103 this terminal's own inputs 1/2 carry the stage limits
+    i_EP2338_Ch6	AT	%I*	:	BOOL;	// struct input 2 of ALI_DIO, EP2338-0001 DI (terminal channels 1..8): 24 V DC, TRUE = 24 V present at the input
+    i_EP2338_Ch7	AT	%I*	:	BOOL;	// struct input 3 of ALI_DIO, EP2338-0001 DI (terminal channels 1..8): 24 V DC, TRUE = 24 V present at the input
+    i_EP2338_Ch8	AT	%I*	:	BOOL;	// struct input 4 of ALI_DIO, EP2338-0001 DI (terminal channels 1..8): 24 V DC, TRUE = 24 V present at the input
 
     //EP4374 Pressure Control
-    i_EP4374_Ch1	AT	%I*	:	INT;
-    i_EP4374_Ch2	AT	%I*	:	INT;
-    q_EP4374_Ch3	AT	%Q*	:	INT;
-    q_EP4374_Ch4	AT	%Q*	:	INT;
+    i_EP4374_Ch1	AT	%I*	:	INT;	// AI ch1 pressure loop 1 readback: raw ADC counts (0..32767 ~= 0..10 V), scaled to the loop full-scale pressure by FB_PCM_AIO / FB_ProportionairRegulator (machine limits: 0..1000 ~= 0..10 bar)
+    i_EP4374_Ch2	AT	%I*	:	INT;	// AI ch2 pressure loop 2 readback: raw ADC counts (0..32767 ~= 0..10 V), scaled to the loop full-scale pressure by FB_PCM_AIO / FB_ProportionairRegulator (machine limits: 0..1000 ~= 0..10 bar)
+    q_EP4374_Ch3	AT	%Q*	:	INT;	// AO ch3 pressure loop 1 command: raw DAC counts (0..32767 ~= 0..10 V) carrying the clamped 0..full-scale pressure setpoint
+    q_EP4374_Ch4	AT	%Q*	:	INT;	// AO ch4 pressure loop 2 command: raw DAC counts (0..32767 ~= 0..10 V) carrying the clamped 0..full-scale pressure setpoint
 
 END_STRUCT
 END_TYPE
