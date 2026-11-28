@@ -1,19 +1,59 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4022.18">
   <POU Name="FB_ManiValve" Id="{960c77b9-da15-4d1d-9d99-120e91ef3098}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_ManiValve
+    <Declaration><![CDATA[(*
+    FB_ManiValve - basic control block for one normally open manifold valve.
+
+    PURPOSE
+        Owns the run logic of one ST_ManifoldValve interface struct: the valve is
+        only allowed to open while its permissive xILK is TRUE, and the physical
+        output qxDO is driven de-energized whenever the permissive is FALSE.
+        These are normally open valves, so qxDO FALSE closes the valve.
+
+    USAGE
+        Instantiated once per valve by FB_GasManifold and called every PLC cycle
+        with the interface struct forwarded as a VAR_IN_OUT reference:
+
+            fbValve[idx](iq_valve := stValve[idx]);
+
+        The caller owns the struct; the block keeps no copy of its own.
+
+    PRECONDITIONS
+        - iq_valve must be assigned by the caller. IEC 61131-3 cannot reject an
+          unassigned in-out parameter at compile time, so the block validates it
+          with __ISVALIDREF on every cycle and returns before the first
+          dereference when the reference is invalid instead of reading or
+          writing through a null pointer.
+
+    HISTORY
+        2026-11-28 / Scirix Agent
+            Validate the iq_valve VAR_IN_OUT reference before any dereference so
+            an unbound reference exits safely instead of faulting the task
+            (convention conv_e1b24623f1df).
+*)
+FUNCTION_BLOCK FB_ManiValve
 VAR_INPUT
 END_VAR
 VAR_OUTPUT
 END_VAR
 VAR_IN_OUT
-    iq_valve	:	ST_ManifoldValve;
+    iq_valve	:	ST_ManifoldValve; // valve interface struct owned by the caller (must be bound)
 END_VAR
 VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[(* Basic valve control block *)
+      <ST><![CDATA[(*
+    Basic valve control block.
+
+    Validate the VAR_IN_OUT interface reference before any dereference: an
+    unbound reference (faulted or unwired instance) exits here instead of
+    faulting the task or reading and writing memory through a null pointer.
+*)
+IF NOT __ISVALIDREF(iq_valve) THEN
+    RETURN;
+END_IF
+
 IF NOT iq_valve.xILK THEN
     iq_valve.xSW := FALSE;
 END_IF
