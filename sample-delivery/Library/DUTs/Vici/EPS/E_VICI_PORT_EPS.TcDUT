@@ -1,10 +1,65 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <DUT Name="E_VICI_PORT_EPS" Id="{19162ed9-f19d-40bd-9a8a-0b945315ca9a}">
-    <Declaration><![CDATA[TYPE E_VICI_PORT_EPS :
+    <Declaration><![CDATA[// ===========================================================================
+// DUT E_VICI_PORT_EPS - per-port EPS status of a Vici sample-delivery valve
+//
+// Purpose:
+//   Aggregates the two values that describe the EPS (Equipment Protection
+//   System) state of one Vici valve port - the raw EPS flag record (stEPS)
+//   and the port status derived from it (ePortStatus) - into one record per
+//   port, and publishes both to EPICS. This struct is the EPICS-facing
+//   per-port status interface of the Vici valve.
+//
+// Usage:
+//   Declare one element per physical valve port in the EPS logic blocks:
+//       aPortEPS : ARRAY [1..nPorts] OF E_VICI_PORT_EPS;
+//   FB_VICI_EPS_LOGIC fills stEPS from the site EPS system and derives
+//   ePortStatus from stEPS.bEPS_OK on every cycle. Both members are written
+//   by the PLC and are status only: operators/PV clients must not write them.
+//
+// Objectives:
+//   - One documented, self-describing status record per port instead of two
+//     loose scalars, so the generated IOC and the operator screens get a
+//     stable, explained layout.
+//   - Make the meaning of every member - and the fact that neither member
+//     carries physical units or scaling - explicit where it is defined.
+//
+// History:
+//   2026-07-17  Josue Zamudio  Created when the Vici EPS handling was split
+//                              out of the valve refactor (struct/enum
+//                              renaming).
+//   2026-11-28  Task #498      Added the purpose/usage/objectives/history
+//                              header and a comment on every struct member.
+//                              Documentation only - no behaviour change.
+// ===========================================================================
+TYPE E_VICI_PORT_EPS :
 STRUCT
+    // Raw EPS status reported by the site EPS system for this port. Declared
+    // as DUT_EPS; no physical units, no scaling. Member meanings:
+    //   nFlags    - UDINT bit mask of the EPS flags; 16#FFFFFFFF means every
+    //               flag is healthy, any other value means at least one flag
+    //               is tripped (one bit per flag, maintained by the EPS
+    //               setter methods).
+    //   sFlagDesc - semicolon-delimited text naming each bit held in nFlags.
+    //   sMessage  - free-text EPS message for operator and log display.
+    //   bEPS_OK   - BOOL verdict derived from nFlags: TRUE only while
+    //               nFlags = 16#FFFFFFFF, i.e. all EPS flags healthy.
+    // EPICS: published as PV stEPS (relative to the enclosing port); PLC-owned.
     {attribute 'pytmc' := 'pv: stEPS'}
     stEPS : DUT_EPS;
+
+    // Port status derived on every cycle from stEPS.bEPS_OK by
+    // FB_VICI_EPS_LOGIC. Type E_VICI_EPS_PORT_STATUS; no physical units.
+    // Enumeration meanings:
+    //   ACTIVE   := 0 - EPS healthy and this port carries the requested
+    //                   sample position (the currently active port).
+    //   UNLOCKED := 1 - EPS healthy but this port is not the requested one;
+    //                   moving a sample through it is permitted.
+    //   LOCKED   := 2 - EPS not OK for this port; the port must not be
+    //                   travelled into (interlock condition).
+    // EPICS: published as PV ePortStatus (relative to the enclosing port);
+    // PLC-owned.
     {attribute 'pytmc' := 'pv: ePortStatus'}
     ePortStatus : E_VICI_EPS_PORT_STATUS;
 END_STRUCT
