@@ -12,7 +12,7 @@ VAR_INPUT
     i_bAdr					:	BYTE;	//Address parameter
     i_bLen					:	BYTE;	//Length of transmission
     i_abTxData				:	ARRAY[1..256] OF BYTE; //Transmission
-    i_tTimeOut				:	TIME := T#10S;  	(* Maximum wait time for reply *)
+    i_tTimeOut				:	TIME := T#10S;  	(* Maximum wait time for the send to complete, and for the reply *)
 END_VAR
 VAR_OUTPUT
     q_xDone					: BOOL;
@@ -82,6 +82,8 @@ IF rtExecute.Q THEN
     fbReceiveData(
         Reset:= TRUE,
         RXbuffer:= iq_stSerialRXBuffer );
+    (* Clear the phase timeout so this transaction starts a fresh timer *)
+    tonTimeout(IN:= FALSE);
     iStep := 10;
 END_IF
 
@@ -159,7 +161,14 @@ CASE iStep OF
         ELSIF NOT fbSendData.Busy THEN
             iStep:=iStep + 10;
         END_IF
-        tonTimeout(IN:= FALSE);
+        (* Bound the send: a TX buffer that never drains would otherwise hold this
+           step forever, so expire into the fault state with an explicit message *)
+        tonTimeout(IN:= fbSendData.Busy AND (iStep = 20), PT:= i_tTimeOut);
+        IF tonTimeout.Q THEN
+            q_sResult := 'Serial device did not accept the message within the send timeout period';
+            q_xTimeout := TRUE;
+            iStep := 9000;
+        END_IF
 
     30: (* Get reply *)
         fbReceiveData(
