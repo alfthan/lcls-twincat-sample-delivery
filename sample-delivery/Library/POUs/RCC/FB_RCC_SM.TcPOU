@@ -39,7 +39,21 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[RCC_GCP_ILK_CONV := RCC_GCP_01_INTERLOCK_SETPOINT * 1E2; // Convert to Torr
+      <ST><![CDATA[(* Validate every VAR_IN_OUT reference before any dereference.
+An invalid reference would fault the PLC, so the cycle is rejected
+and the error is latched instead of being dereferenced.*)
+IF NOT __ISVALIDREF(stRCC_VRC_01) OR
+   NOT __ISVALIDREF(stRCC_VRC_02) OR
+   NOT __ISVALIDREF(stRCC_VRC_03) OR
+   NOT __ISVALIDREF(stRCC_VRC_04) OR
+   NOT __ISVALIDREF(stRCC_GCP_01) THEN
+    bError := TRUE;
+    eCurrentState := E_RCC_STATES.ERROR;
+    sLogMessage := 'FB_RCC_SM: INVALID VAR_IN_OUT REFERENCE';
+    RETURN;
+END_IF
+
+RCC_GCP_ILK_CONV := RCC_GCP_01_INTERLOCK_SETPOINT * 1E2; // Convert to Torr
 tTimerRBV := TIME_TO_STRING(tTimer1.ET);
 
 (* Valve can open only when CRIX-RCC-VRC-02 and 03 are closed*)

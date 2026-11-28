@@ -34,7 +34,21 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[(* Valve can open only when CRIX-RCC-VRC-02 and 03 are closed*)
+      <ST><![CDATA[(* Validate every VAR_IN_OUT reference before any dereference.
+An invalid reference would fault the PLC, so the cycle is rejected
+and the error is latched instead of being dereferenced.*)
+IF NOT __ISVALIDREF(stRCC_VRC_01) OR
+   NOT __ISVALIDREF(stRCC_VRC_02) OR
+   NOT __ISVALIDREF(stRCC_VRC_03) OR
+   NOT __ISVALIDREF(stRCC_VRC_04) OR
+   NOT __ISVALIDREF(stRCC_GCP_01) THEN
+    bError := TRUE;
+    eCurrentState := E_RCC_STATES.ERROR;
+    sLogMessage := 'FB_RCC_SM: INVALID VAR_IN_OUT REFERENCE';
+    RETURN;
+END_IF
+
+(* Valve can open only when CRIX-RCC-VRC-02 and 03 are closed*)
 RCC_VRC_01_OPEN_OK := ( stRCC_VRC_02.i_xClsLS AND NOT stRCC_VRC_02.q_xOPN_DO ) AND
                                     ( stRCC_VRC_03.i_xClsLS AND NOT stRCC_VRC_03.q_xOPN_DO ) ;
 
