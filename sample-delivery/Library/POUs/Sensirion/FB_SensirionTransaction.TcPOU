@@ -119,7 +119,8 @@ CASE iStep OF
          FOR iSeek:=2 TO UDINT_TO_INT(udiTxLen) DO
              IF (baTxData[iSeek]=16#7E) OR (baTxData[iSeek]=16#7D) OR (baTxData[iSeek]=16#11) OR (baTxData[iSeek]=16#13) THEN
                  (* When a special byte is found, move the remaining message to the right by one byte *)
-                 fbShiftByteArray(ptArray:=ADR(baTxData), iSize:=256, iCurrIndex:=iSeek, iMessageLen:=(5+BYTE_TO_INT(i_bLen)+1), iShift:=1);
+                 // c_ArraySize is the real capacity of baTxData, so the block validates against the whole buffer
+                 fbShiftByteArray(ptArray:=ADR(baTxData), iSize:=c_ArraySize, iCurrIndex:=iSeek, iMessageLen:=(5+BYTE_TO_INT(i_bLen)+1), iShift:=1);
                  IF fbShiftByteArray.q_xError THEN
                      q_sResult:='Transaction failed in step 10 while making room for the stuffing';
                      iStep := 9000;
@@ -189,7 +190,8 @@ CASE iStep OF
                 //Remove the stuffing
                 FOR iSeek:=1 TO UDINT_TO_INT(udiRxLen) DO
                     IF baRxData[iSeek]=16#7D THEN
-                        fbShiftByteArray(ptArray:=ADR(baRxData), iSize:=256, iCurrIndex:=iSeek, iMessageLen:=UDINT_TO_INT(udiRxLen), iShift:=-1);
+                        // c_ArraySize is the real capacity of baRxData, so the block validates against the whole buffer
+                        fbShiftByteArray(ptArray:=ADR(baRxData), iSize:=c_ArraySize, iCurrIndex:=iSeek, iMessageLen:=UDINT_TO_INT(udiRxLen), iShift:=-1);
                         IF fbShiftByteArray.q_xError THEN
                             q_sResult:='Transaction failed in step 30, while removing the stuffing Hans dropped some on the floor, oh Hans!';
                             iStep:=9000;

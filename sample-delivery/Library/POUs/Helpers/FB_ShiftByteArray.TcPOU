@@ -1,37 +1,128 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4022.18">
   <POU Name="FB_ShiftByteArray" Id="{4ec9fba6-d602-4cf1-98d7-79ad87f6fbee}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_ShiftByteArray
-VAR_INPUT
-    ptArray	:	POINTER TO BYTE;
-    iSize	:	INT;
-    iCurrIndex	:	INT;
-    iMessageLen	:	INT;
-    iShift		:	INT;
+    <Declaration><![CDATA[(*
+    FB_ShiftByteArray
 
+    PURPOSE
+        Moves one contiguous block of bytes inside a caller-supplied buffer by a
+        signed number of bytes. The Sensirion SHDLC transaction uses it to make
+        room for a stuffing byte (positive shift) and to remove one (negative
+        shift).
+
+    USAGE
+        Called from FB_SensirionTransaction while it builds a frame (step 10)
+        and while it de-stuffs the reply (step 30):
+
+            fbShiftByteArray(ptArray     := ADR(baRxData),
+                             iSize       := c_ArraySize,
+                             iCurrIndex  := iSeek,
+                             iMessageLen := UDINT_TO_INT(udiRxLen),
+                             iShift      := -1);
+
+        The caller must evaluate q_xError: when it is TRUE the request was
+        rejected and no byte was moved, so the frame being built or parsed is
+        not valid and must not be sent or interpreted.
+
+    OBJECTIVES
+        - Validate the caller-supplied buffer pointer before any pointer
+          arithmetic, so a NULL or invalid pointer can neither corrupt PLC
+          memory nor fault the task.
+        - Reject negative or inverted indices, and any block that would leave
+          the buffer, before the copy length is used: a negative length passed
+          to INT_TO_UDINT() becomes a huge byte count and drives MEMMOVE past
+          the end of the caller's buffer.
+        - Keep every read and write inside ptArray[0 .. iSize - 1].
+
+    PRECONDITIONS
+        - ptArray must address a buffer of at least iSize bytes. IEC 61131-3
+          cannot check a POINTER at compile time, so the block checks it for
+          zero itself; the buffer length stays the caller's contract.
+        - iSize is the buffer capacity in bytes, so the addressable offsets are
+          0 .. iSize - 1. Pass the real size of the buffer, e.g. SIZEOF() or the
+          constant the array was declared with.
+        - The moved block is the offsets iCurrIndex + 1 .. iMessageLen and it
+          lands on the offsets iCurrIndex + 1 + iShift .. iMessageLen + iShift.
+        - iShift is signed on purpose: a negative shift removes a byte, which is
+          what de-stuffing a received frame needs.
+
+    HISTORY
+        2026-11-28 / Scirix Agent
+            Validate ptArray and the iSize/iCurrIndex/iMessageLen/iShift request
+            before it is used instead of only summing two of them, so a negative
+            length can no longer reach MEMMOVE as a huge UDINT (for example
+            iCurrIndex = 100 with iMessageLen = 0). Comment the declarations and
+            drop the unused sizeof(ptArray^) probe, which always reported the
+            size of a single BYTE and was never read.
+*)
+FUNCTION_BLOCK FB_ShiftByteArray
+VAR_INPUT
+    ptArray	:	POINTER TO BYTE;	// Caller buffer, validated before the first access
+    iSize	:	INT;	// Capacity of the buffer in bytes: offsets 0 .. iSize-1 are addressable
+    iCurrIndex	:	INT;	// Offset in front of the block: the block is offsets iCurrIndex+1 .. iMessageLen
+    iMessageLen	:	INT;	// Offset of the last byte of the block that moves
+    iShift		:	INT;	// Signed move distance in bytes, positive towards higher offsets
 END_VAR
 VAR_OUTPUT
-    q_xError	:	BOOL;
-END_VAR
-VAR
-    howbig	: UINT;
+    q_xError	:	BOOL;	// TRUE when the request was rejected: no byte was moved
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[howbig := sizeof(ptArray^);
-// Clear error bit
+      <ST><![CDATA[(*
+    Every rejection below leaves q_xError TRUE and moves nothing, so the MEMMOVE
+    is only reached by a request that is known to stay inside ptArray[0 .. iSize-1].
+    All bounds are evaluated in DINT: an INT sum of two large values would wrap
+    and could pass a guard it should fail.
+*)
+// Clear the error bit of the previous call
 q_xError := FALSE;
-IF iMessageLen = iCurrIndex THEN
-    //Dont do a damn thing
-    ;
-// Check the remaining length and shift amount summed is not greater than the total array width.
-ELSIF iSize < (iMessageLen - iCurrIndex) + iShift THEN
+
+// Never do pointer arithmetic on, or move bytes through, an unvalidated pointer
+IF ptArray = 0 THEN
     q_xError := TRUE;
-ELSE// MEMMOVE from 1+ the current index to the remaining length by the shift amount
-    IF MEMMOVE(srcAddr:=(ptArray + iCurrIndex + 1), destAddr:=(ptArray + iCurrIndex + 1 + iShift), n:=INT_TO_UDINT(iMessageLen + 1 - iCurrIndex)) =0 THEN
+    RETURN;
+END_IF
+
+// A buffer that holds no byte cannot hold a block
+IF iSize <= 0 THEN
+    q_xError := TRUE;
+    RETURN;
+END_IF
+
+// Negative or inverted indices make the copy length negative, and INT_TO_UDINT()
+// of a negative length is the huge byte count that used to be handed to MEMMOVE
+IF (iCurrIndex < 0) OR (iMessageLen < iCurrIndex) THEN
+    q_xError := TRUE;
+    RETURN;
+END_IF
+
+// The last byte of the source block must be inside the buffer
+IF INT_TO_DINT(iMessageLen) > INT_TO_DINT(iSize) - 1 THEN
+    q_xError := TRUE;
+    RETURN;
+END_IF
+
+// The last byte of the destination block must be inside the buffer as well
+IF INT_TO_DINT(iMessageLen) + INT_TO_DINT(iShift) > INT_TO_DINT(iSize) - 1 THEN
+    q_xError := TRUE;
+    RETURN;
+END_IF
+
+// The destination block must not start in front of the first byte of the buffer
+IF INT_TO_DINT(iCurrIndex) + 1 + INT_TO_DINT(iShift) < 0 THEN
+    q_xError := TRUE;
+    RETURN;
+END_IF
+
+IF iMessageLen = iCurrIndex THEN
+    // Empty block: nothing to move
+    ;
+ELSE// MEMMOVE from 1 + the current index to the remaining length by the shift amount
+    IF MEMMOVE(srcAddr:=(ptArray + iCurrIndex + 1), destAddr:=(ptArray + iCurrIndex + 1 + iShift), n:=INT_TO_UDINT(iMessageLen + 1 - iCurrIndex)) = 0 THEN
         q_xError := TRUE;
     END_IF
-END_IF]]></ST>
+END_IF
+]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>
