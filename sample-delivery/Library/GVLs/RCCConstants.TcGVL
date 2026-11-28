@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="RCCConstants" Id="{3c1d7a54-6f0b-4f2e-9a6d-5b8c2e41f7d9}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+(*
+    RCCConstants
+
+    Declared limits for the CRIX-RCC (rapid cycle cleaning) pressure interlock.
+
+    The interlock setpoint RCC_GCP_01_INTERLOCK_SETPOINT is written from EPICS in
+    units of 1E2 Torr and is compared against the RCC GCP-01 gauge readback, which
+    is in Torr. Both the unit scale and the window the request is allowed to take
+    used to be implicit: the setpoint was multiplied by a bare 1E2 literal and
+    never range checked, so a bad EPICS write could either block the drain
+    comparison forever or let VRC-03 open while the RCC was still far above a safe
+    pressure. They live here once, in Torr and with their units, so the window can
+    be reviewed and adjusted in one place.
+
+    Usage:
+        RCCConstants.K_RCC_ILK_SP_TORR_PER_UNIT
+        RCCConstants.K_RCC_ILK_SP_MIN_TORR
+        RCCConstants.K_RCC_ILK_SP_MAX_TORR
+
+    History:
+        legacy     : setpoint scaled by a bare 1E2 literal in FB_RCC_SM, no range check
+        2026-11-28 : limits and unit scale declared here, FB_RCC_SM clamps the request
+*)
+VAR_GLOBAL CONSTANT
+    (* Pressure per setpoint unit. The EPICS setpoint is expressed in 1E2 Torr, so
+       one setpoint unit is 100 Torr. [Torr/unit] *)
+    K_RCC_ILK_SP_TORR_PER_UNIT : REAL := 1E2;
+
+    (* Lowest interlock setpoint the drain comparison may use. VRC-03 is opened on
+       rPRESS < setpoint, so a setpoint at or below zero can never be satisfied and
+       would block the drain forever. [Torr] *)
+    K_RCC_ILK_SP_MIN_TORR : REAL := 1.0;
+
+    (* Highest interlock setpoint: the full scale of the RCC GCP-01 gauge
+       (ST_VG.rFULL_SCALE). Above that span the comparison is meaningless because
+       the gauge cannot report a pressure that high. [Torr] *)
+    K_RCC_ILK_SP_MAX_TORR : REAL := 1000.0;
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

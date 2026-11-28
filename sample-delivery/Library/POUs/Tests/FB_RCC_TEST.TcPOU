@@ -36,6 +36,16 @@ VAR
     bInitTest_02 : BOOL := TRUE;
     xSystemOverrideMode_RCC_02: BOOL := FALSE;
 
+    // VARS FOR TestIlkSetpointOutOfRangeExpectErrorLatch
+    fbRCC3 : FB_RCC;
+    stRCC3_CTL : ST_RCC;
+    stRCC_VRC_01_03 : ST_VRC;
+    stRCC_VRC_02_03 : ST_VRC;
+    stRCC_VRC_03_03 : ST_VRC;
+    stRCC_VRC_04_03 : ST_VRC;
+    stRCC_GCP_01_03 : ST_VG;
+    bInitTest_03 : BOOL := TRUE;
+
     // VARS FOR TestSingleCyleExpectToTransitionThoughOneCycle
     bSeenStateZero : BOOL := FALSE;
     bSeenStateOne : BOOL := FALSE;
@@ -52,7 +62,8 @@ END_VAR
     <Implementation>
       <ST><![CDATA[TestSingleCyleExpectToTransitionThoughOneCycle();
 TestErrorExpectToTransitionToErroState();
-TestStopCycleExpectToReturnToIdleState();]]></ST>
+TestStopCycleExpectToReturnToIdleState();
+TestIlkSetpointOutOfRangeExpectErrorLatch();]]></ST>
     </Implementation>
     <Method Name="TestErrorExpectToTransitionToErroState" Id="{be7cda11-b5de-4ecd-bb07-02ca724d97e3}">
       <Declaration><![CDATA[METHOD TestErrorExpectToTransitionToErroState : REFERENCE TO FB_Test
@@ -243,6 +254,61 @@ IF tTimer1_02.Q THEN
     bInitTest_02 := TRUE;
 END_IF
 ]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TestIlkSetpointOutOfRangeExpectErrorLatch" Id="{5d2f9c3a-8e61-4b47-b1a0-3f6c7d90a215}">
+      <Declaration><![CDATA[METHOD TestIlkSetpointOutOfRangeExpectErrorLatch : REFERENCE TO FB_Test
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('TestIlkSetpointOutOfRangeExpectErrorLatch');
+
+// An interlock setpoint outside the declared window must be rejected: it is clamped
+// inside FB_RCC_SM and the error is latched, so VRC-03 can never be opened on a
+// threshold the gauge cannot honour.
+IF bInitTest_03 THEN
+    stRCC3_CTL.RCC_GCP_01_INTERLOCK_SETPOINT := -5; // Below RCCConstants.K_RCC_ILK_SP_MIN_TORR
+    stRCC3_CTL.bStartCycle := TRUE;
+    bInitTest_03 := FALSE;
+END_IF
+
+fbRCC3(stRCC_GCP_01 := stRCC_GCP_01_03,
+    stRCC_VRC_01 := stRCC_VRC_01_03,
+    stRCC_VRC_02 := stRCC_VRC_02_03,
+    stRCC_VRC_03 := stRCC_VRC_03_03,
+    stRCC_VRC_04 := stRCC_VRC_04_03,
+    stRCC_CTL := stRCC3_CTL
+);
+
+IF stRCC3_CTL.bError THEN
+    AssertEquals_INT(Expected := E_RCC_STATES.ERROR,
+        Actual := stRCC3_CTL.eCurrentState,
+        Message := 'OUT OF RANGE SETPOINT DID NOT LATCH THE ERROR STATE');
+
+    AssertEquals_BOOL(Expected := FALSE,
+        Actual := stRCC3_CTL.RCC_VRC_03_OPEN_OK,
+        Message := 'VRC-03 OPEN PERMIT NOT WITHDRAWN FOR AN OUT OF RANGE SETPOINT');
+
+    // Correct the request and acknowledge the latched error.
+    stRCC3_CTL.RCC_GCP_01_INTERLOCK_SETPOINT := 10;
+    stRCC3_CTL.bClearError := TRUE;
+
+    fbRCC3(stRCC_GCP_01 := stRCC_GCP_01_03,
+        stRCC_VRC_01 := stRCC_VRC_01_03,
+        stRCC_VRC_02 := stRCC_VRC_02_03,
+        stRCC_VRC_03 := stRCC_VRC_03_03,
+        stRCC_VRC_04 := stRCC_VRC_04_03,
+        stRCC_CTL := stRCC3_CTL
+    );
+
+    AssertEquals_BOOL(Expected := FALSE,
+        Actual := stRCC3_CTL.bError,
+        Message := 'ERROR NOT CLEARED AFTER THE SETPOINT WAS CORRECTED');
+
+    TEST_FINISHED();
+    bInitTest_03 := TRUE;
+END_IF]]></ST>
       </Implementation>
     </Method>
   </POU>

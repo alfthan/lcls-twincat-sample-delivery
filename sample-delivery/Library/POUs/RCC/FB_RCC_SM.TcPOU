@@ -34,12 +34,40 @@ VAR_IN_OUT
     RCC_VRC_04_OPEN_OK : BOOL;
 END_VAR
 VAR
-    RCC_GCP_ILK_CONV : REAL;
+    RCC_GCP_ILK_CONV : REAL;   // Validated interlock threshold, in Torr
+    rIlkSPSpanTorr : REAL;     // Physical span of the GCP-01 gauge, used as the setpoint ceiling [Torr]
+    rIlkSPMin : REAL;          // Lowest accepted interlock setpoint, in setpoint units [1E2 Torr]
+    rIlkSPMax : REAL;          // Highest accepted interlock setpoint, in setpoint units [1E2 Torr]
+    xIlkSPValid : BOOL;        // TRUE when the requested interlock setpoint is inside the accepted window
     tTimer1 : TON;
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[RCC_GCP_ILK_CONV := RCC_GCP_01_INTERLOCK_SETPOINT * 1E2; // Convert to Torr
+      <ST><![CDATA[// Interlock setpoint
+// RCC_GCP_01_INTERLOCK_SETPOINT is written from EPICS in units of
+// RCCConstants.K_RCC_ILK_SP_TORR_PER_UNIT (1E2 Torr) and is compared below against
+// stRCC_GCP_01.rPRESS, which is in Torr. The request is checked against the declared
+// interlock window and the gauge's physical span before the unit conversion:
+// a negative or zero setpoint can never be satisfied (rPRESS < setpoint is
+// unreachable) and would block the drain forever, while an absurdly large one would
+// let VRC-03 open with the RCC still far above a safe pressure. The request is
+// clamped into the window here and an out-of-range request latches an error below.
+rIlkSPSpanTorr := stRCC_GCP_01.rFULL_SCALE; // Gauge physical span [Torr]
+IF rIlkSPSpanTorr <= 0 THEN
+    // Unconfigured gauge span, fall back to the declared ceiling
+    rIlkSPSpanTorr := RCCConstants.K_RCC_ILK_SP_MAX_TORR;
+END_IF
+rIlkSPMin := RCCConstants.K_RCC_ILK_SP_MIN_TORR / RCCConstants.K_RCC_ILK_SP_TORR_PER_UNIT;
+rIlkSPMax := MIN(RCCConstants.K_RCC_ILK_SP_MAX_TORR, rIlkSPSpanTorr) / RCCConstants.K_RCC_ILK_SP_TORR_PER_UNIT;
+IF rIlkSPMax < rIlkSPMin THEN
+    rIlkSPMax := rIlkSPMin; // Degenerate gauge span, keep the LIMIT bounds ordered
+END_IF
+xIlkSPValid := (RCC_GCP_01_INTERLOCK_SETPOINT >= rIlkSPMin)
+    AND (RCC_GCP_01_INTERLOCK_SETPOINT <= rIlkSPMax);
+// Clamped setpoint in Torr, used as the VRC-03 open threshold below
+RCC_GCP_ILK_CONV := LIMIT(rIlkSPMin, RCC_GCP_01_INTERLOCK_SETPOINT, rIlkSPMax)
+    * RCCConstants.K_RCC_ILK_SP_TORR_PER_UNIT;
+
 tTimerRBV := TIME_TO_STRING(tTimer1.ET);
 
 (* Valve can open only when CRIX-RCC-VRC-02 and 03 are closed*)
@@ -59,6 +87,20 @@ RCC_VRC_03_OPEN_OK := (stRCC_GCP_01.rPRESS < RCC_GCP_ILK_CONV AND stRCC_GCP_01.x
 (* Valve can open only when CRIX-RCC-VRC-02 and 03 are closed*)
 RCC_VRC_04_OPEN_OK := ( stRCC_VRC_02.i_xClsLS AND NOT stRCC_VRC_02.q_xOPN_DO ) AND
                                       ( stRCC_VRC_03.i_xClsLS AND NOT stRCC_VRC_03.q_xOPN_DO ) ;
+
+// An out-of-range interlock setpoint means the drain-complete threshold cannot be
+// trusted: withdraw every valve-open permit and latch the error until the request is
+// corrected and acknowledged through bClearError.
+IF NOT xIlkSPValid THEN
+    RCC_VRC_01_OPEN_OK := FALSE;
+    RCC_VRC_02_OPEN_OK := FALSE;
+    RCC_VRC_03_OPEN_OK := FALSE;
+    RCC_VRC_04_OPEN_OK := FALSE;
+    bRunning := FALSE;
+    eCurrentState := E_RCC_STATES.ERROR;
+    bError := TRUE;
+    sLogMessage := 'ILK SETPOINT OUT OF RANGE';
+END_IF
 
 
 IF bStop THEN
