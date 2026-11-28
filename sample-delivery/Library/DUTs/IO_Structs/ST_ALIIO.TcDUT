@@ -2,9 +2,10 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4020.12">
   <DUT Name="ST_ALIIO" Id="{4882ef88-4d39-45a1-bcad-049669e85bd0}">
     <Declaration><![CDATA[(* ST_ALIIO - EtherCAT I/O image of the ALI (aerodynamic lens injector) cluster.
-   Members are placeholders (AT %I*/%Q*) that the machine project binds to their
-   terminal with 'TcLinkTo'; the channel number in a member name is index-local
-   to this struct and does not repeat the terminal's own channel numbering.
+   Members are declared as AT %I* or AT %Q* placeholders; the machine project
+   binds each one to its terminal with 'TcLinkTo', and the channel number in a
+   member name is index-local to this struct and does not repeat the terminal's
+   own channel numbering.
    Terminals covered: ALI_Gauges (EP3174-0002, 4 ch analog input), ALI_DIO
    (EP2338-0001, 8 DI / 8 DO 24 V DC) and the PCM modules (EP4374-0002, 2 analog
    in + 2 analog out pressure control).
