@@ -1,32 +1,59 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <DUT Name="ST_4PViciValveSampleNames" Id="{35be0b4c-67ce-4822-bad8-6de307e4269c}">
-    <Declaration><![CDATA[TYPE ST_4PViciValveSampleNames :
+    <Declaration><![CDATA[(*
+    Purpose: keep one human-readable label for the sample loaded on each of
+    the four ports of a 4-port VICI selector valve, so the operator screens,
+    the generated EPICS IOC and downstream analysis can name the sample that
+    a given valve position is drawing from.
+
+    Usage: FB_4PortViciValve and FB_4PVICI_EPS each own one instance
+    (stSampleNames) and publish it under 'pv: SampleNames', which maps the
+    members to <prefix>:SampleNames:01 ... :04. The strings are operator
+    annotation only - no PLC logic reads them. They are writable and
+    readable from EPICS ('io: io') and are restored by the IOC on restart
+    ('autosave_pass0: VAL DESC'), so a saved name survives a PLC or IOC
+    restart. An empty string means that port has not been labelled yet.
+
+    Objectives: one label per valve port, addressed by port number in the PV
+    name; free text so that any sample naming scheme works; labels preserved
+    across restarts; and a separate struct per valve size (this one for the
+    4-port valves, ST_12ViciValveSampleNames for the 12-port valves) so the
+    exported PV set matches the valve's port count.
+
+    History: 2025-05-29 Josue Zamudio - struct present from the project
+    restructure commit (9b2fb2c).
+             2026-06-25 Josue Zamudio - autosave_pass0 added so the IOC saves
+    the names (dfd51d5).
+             2026-11-28 header and per-member comments added; no declaration
+    or behaviour change (audit finding #449, conv_321640e095c0).
+*)
+TYPE ST_4PViciValveSampleNames :
 STRUCT
       {attribute 'pytmc' := '
         pv: 01
         io: io
         autosave_pass0: VAL DESC
      '}
-     s1 : STRING;
+     s1 : STRING; // port 1 sample name, free text (max 80 chars, no units)
      {attribute 'pytmc' := '
         pv: 02
         io: io
         autosave_pass0: VAL DESC
      '}
-     s2 : STRING;
+     s2 : STRING; // port 2 sample name, free text (max 80 chars, no units)
      {attribute 'pytmc' := '
         pv: 03
         io: io
         autosave_pass0: VAL DESC
      '}
-     s3 : STRING;
+     s3 : STRING; // port 3 sample name, free text (max 80 chars, no units)
      {attribute 'pytmc' := '
         pv: 04
         io: io
         autosave_pass0: VAL DESC
      '}
-     s4 : STRING;
+     s4 : STRING; // port 4 sample name, free text (max 80 chars, no units)
 END_STRUCT
 END_TYPE
 ]]></Declaration>
