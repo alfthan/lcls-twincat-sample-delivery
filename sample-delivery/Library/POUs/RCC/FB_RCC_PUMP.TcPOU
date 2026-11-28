@@ -37,6 +37,14 @@ END_IF
 
 CASE iState OF
     E_RCC_PUMP_SM_STATES.IDLE: // IDlE
+    // Fail-safe: iState is initialised to IDLE, so this branch also runs on
+    // the first scan and whenever the cycle is not actively commanded. Drive
+    // every valve output to its de-energized (closed) state here so a PLC
+    // restart, or a block that is never started, cannot leave a retained open
+    // valve command asserted.
+    stRCC_VRC_01.pv_xOPN_SW := FALSE;
+    stRCC_VRC_02.pv_xOPN_SW := FALSE;
+    stRCC_VRC_03.pv_xOPN_SW := FALSE;
 
     IF bStart THEN
         iState := E_RCC_PUMP_SM_STATES.PRESSURE;
