@@ -1,40 +1,100 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4020.12">
   <DUT Name="ST_ManipAxis" Id="{8a2b69b2-0749-42c2-bd32-ad09794455d6}">
-    <Declaration><![CDATA[TYPE ST_ManipAxis :
+    <Declaration><![CDATA[(*
+    ST_ManipAxis - interface struct for one ALI manipulator axis.
+
+    Purpose: hold, in one place, everything that crosses the boundary of a single
+    Aerodynamic Lens Injector (ALI) manipulator axis - enable, position request,
+    start/stop/reset commands and status/limit readbacks - together with the NC
+    axis reference and the velocity the motion block runs at.
+
+    Usage: ST_ALI declares one instance per manipulator axis (axisX, axisY,
+    axisZ). FB_ALI calls one FB_ManipAxis per axis and passes the struct by
+    reference through that block's iq_ManipAxis VAR_IN_OUT; the block drives the
+    axis and writes the status members back. Commands are written by whoever owns
+    the struct (EPICS through pytmc, or PLC code) and the readbacks are consumed
+    the same way. Only absolute smoothed moves are implemented: rReqAbsPos is fed
+    to MC_SmoothMover and clamped to the -100..100 mm manipulator range.
+
+    Objectives: one axis' complete interface in one struct, so adding an axis is
+    one more ST_ManipAxis member in ST_ALI plus one more FB_ManipAxis instance;
+    every member documented with meaning and units so an integrator never has to
+    guess whether a position is mm, counts or degrees; the internal state
+    (eState) and the NC reference (stAxis) kept with the interface so that
+    FB_ManipAxis needs no globals.
+
+    Units: positions are in the NC engineering unit and velocity in EGU/s. These
+    manipulator axes are set up in millimetres, so rReqAbsPos, rActPos and the
+    -100..100 clamp are mm and lrVelocity is mm/s. Note that the machine
+    solutions in plc-scirix currently declare no NC axis at all, so stAxis is
+    unlinked there and the EGU is fixed when the axis is commissioned.
+
+    Open points, so nobody reads more into this struct than is there:
+    - rReqRelPos and wMode are carried for the EPICS interface but are not
+      evaluated anywhere; FB_ManipAxis always performs absolute moves.
+    - xHiLS/xLoLS are raw %I* inputs with no TcLinkTo configured in this
+      namespace, and the FB inverts them into xHLS/xLLS for display only ("this
+      logic is not for safety"). The original note calls the EPICS limit status
+      normally open, while xHLS := NOT xHiLS means the field input reads FALSE at
+      the limit - confirm the field wiring before trusting either polarity.
+    - xEnable defaults to TRUE, so a freshly declared axis is enabled without an
+      explicit request. That contradicts the safe-state convention and is left
+      as-is here because this change is documentation only.
+
+    History:
+    - 2016-08-08  A. Wallace    - original manipulator axis logic (FB_ManipAxis).
+    - 2023-05-19  Josue Zamudio - initial commit of this TwinCAT project, struct
+      as documented below.
+    - 2025-05-29  Josue Zamudio - project restructure, struct unchanged.
+    - 2026-11-28  Scirix Agent  - header and per-member comments added, no type
+      or logic changed (audit finding #430, task #503).
+*)
+TYPE ST_ManipAxis :
 STRUCT
 
 (* Controls *)
+// Axis enable request: TRUE powers the NC axis and allows motion; any change of this bit re-initialises FB_ManipAxis
 xEnable	:	BOOL := TRUE;
+// Absolute target position [mm]; FB_ManipAxis clamps it to -100..100 mm before it reaches MC_SmoothMover.ReqAbsPos
 rReqAbsPos	:	REAL;
+// Relative move request [mm]; carried for the EPICS interface but not evaluated - FB_ManipAxis only moves absolutely
 rReqRelPos	:	REAL;
+// Start command: TRUE starts a move to rReqAbsPos; in its MoveEnabled state FB_ManipAxis copies it to MC_SmoothMover.Execute and clears it again in the same scan
 xStart	:	BOOL;
+// Stop command: TRUE halts the axis through MC_Halt and is cleared as soon as the halt is busy
 xStop	:	BOOL;
+// Requested move mode (Hold / MoveAbs / MoveRel) as E_AxisMoveMode; carried but not evaluated by FB_ManipAxis
 wMode	:	E_AxisMoveMode;
-//EPICS motor status
+// EPICS motor status word: pseudo MSTA built by F_AxisRef_To_MSTA, bit 0 = xEnabled, bit 1 = axis error [bit field, no units]
 uiMsta	:	UINT;
-//EPICS Position readback
+// EPICS position readback [mm]: stAxis.NcToPlc.ActPos copied to REAL every scan
 rActPos	:	REAL;
-//Axis enabled readback
+// Axis enabled readback: TRUE while MC_Power reports Status, i.e. the power stage is on
 xEnabled	:	BOOL;
-//EPICS High Limit Switch (NO)
+// EPICS high limit switch status: xHLS := NOT xHiLS, so TRUE means the raw upper limit input is FALSE [boolean, display only]
 xHLS	:	BOOL;
-//EPICS Low Limit Switch (NO)
+// EPICS low limit switch status: xLLS := NOT xLoLS, so TRUE means the raw lower limit input is FALSE [boolean, display only]
 xLLS	:	BOOL;
-//EPICS MOVN
+// EPICS MOVN (moving): TRUE while MC_SmoothMover or MC_Halt is busy
 xMovn	:	BOOL;
-//EPICS DMOV
+// EPICS DMOV (done moving): TRUE when MC_SmoothMover or MC_Halt reports Done
 xDmov	:	BOOL;
-//EPICS Reset
+// EPICS reset command: TRUE triggers MC_Reset on the axis and is cleared when the reset completes
 xReset	:	BOOL;
 
 (* Axis motor *)
+// TwinCAT NC axis reference this struct belongs to; FB_ManipAxis drives it
 stAxis	:	AXIS_REF;
+// Velocity used for every move of this axis
 lrVelocity	:	LREAL	:=1; //mm/s
 
+// State of the FB_ManipAxis state machine driving this axis (Init / MoveEnabled / Error); written by the FB, status only
 eState	:	E_AxisMotionState;
 
+// Raw upper limit switch field input (%I*), negated into the xHLS status; no TcLinkTo configured in this namespace yet
 xHiLS	AT %I* :	BOOL;
+// Raw lower limit switch field input (%I*), negated into the xLLS status; no TcLinkTo configured in this namespace yet
 xLoLS	AT %I* :	BOOL;
 
 END_STRUCT
