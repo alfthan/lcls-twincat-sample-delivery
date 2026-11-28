@@ -55,6 +55,8 @@ VAR
     iFrameWidth	:	INT;
     bCatch : BYTE;
     xCatch : BOOL;
+    bChecksum : BYTE; // Checksum of the frame being built, calculated over exactly i_bLen payload bytes
+    xChecksumError : BOOL; // fSHDLCChecksum rejected the payload buffer pointer: the frame must not be sent
 
 END_VAR
 ]]></Declaration>
@@ -101,8 +103,14 @@ CASE iStep OF
         IF i_bLen > 0 THEN
             MEMCPY(destAddr:=ADR(baTxData[5]), srcAddr:=ADR(i_abTxData), n:=i_bLen);
         END_IF
-        //Add the checksum
-        baTxData[5+i_bLen]:=fSHDLCChecksum(i_bAdr:=i_bAdr, i_bCmd:=i_bCmd, i_bLen:=i_bLen, i_pbaTxData:=ADR(i_abTxData));
+        //Add the checksum, fSHDLCChecksum validates the buffer pointer it is handed
+        bChecksum:=fSHDLCChecksum(i_bAdr:=i_bAdr, i_bCmd:=i_bCmd, i_bLen:=i_bLen, i_pbaTxData:=ADR(i_abTxData), q_xError => xChecksumError);
+        IF xChecksumError THEN
+            q_sResult:='Transaction failed in step 10: fSHDLCChecksum rejected the transmission buffer pointer';
+            iStep := 9000;
+            RETURN; //do not send a frame without a valid checksum
+        END_IF
+        baTxData[5+i_bLen]:=bChecksum;
 
 
 

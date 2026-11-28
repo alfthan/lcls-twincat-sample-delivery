@@ -1,15 +1,60 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.0.24">
   <POU Name="fSHDLCChecksum" Id="{a9b3b4d5-8205-40aa-be47-6f11775318a7}">
-    <Declaration><![CDATA[FUNCTION fSHDLCChecksum : BYTE
+    <Declaration><![CDATA[(*
+    fSHDLCChecksum
+
+    PURPOSE
+        Calculates the checksum of one Sensirion SHDLC frame: the address, the
+        command, the length and the i_bLen payload bytes are summed and the sum
+        is XORed with 16#FF, which inverts the low nibble of the result.
+
+    USAGE
+        Called from FB_SensirionTransaction while it builds the transmit frame:
+
+            bChecksum := fSHDLCChecksum(i_bAdr := i_bAdr,
+                                        i_bCmd := i_bCmd,
+                                        i_bLen := i_bLen,
+                                        i_pbaTxData := ADR(i_abTxData),
+                                        q_xError => xChecksumError);
+
+        The caller passes ADR() of a buffer holding at least i_bLen bytes and
+        must evaluate q_xError: when it is TRUE no checksum was calculated and
+        the frame must not be sent.
+
+    OBJECTIVES
+        - Sum exactly the i_bLen payload bytes the frame declares (offsets
+          0 .. i_bLen - 1) and never the byte past the frame that i_bLen
+          describes, so a buffer sized to the frame is not over-read.
+        - Validate the externally supplied buffer pointer before the first
+          dereference and return early when it is invalid, so a NULL/invalid
+          pointer can neither stop the controller with a pointer-access fault
+          nor let a frame leave with a bogus checksum.
+
+    PRECONDITIONS
+        - i_pbaTxData must point at a buffer of at least i_bLen bytes. IEC
+          61131-3 cannot reject a bad POINTER at compile time, so the function
+          checks it for zero itself; the buffer length stays the caller's
+          contract.
+
+    HISTORY
+        2026-11-28 / Scirix Agent
+            Validate i_pbaTxData before dereferencing it, publish the outcome on
+            q_xError, and sum exactly i_bLen payload bytes instead of i_bLen + 1
+            (audit finding #504, convention conv_e1b24623f1df).
+*)
+FUNCTION fSHDLCChecksum : BYTE
 VAR_INPUT
-    i_bAdr	:	BYTE;
-    i_bCmd	:	BYTE;
-    i_bLen	:	BYTE;
-    i_pbaTxData	:	POINTER TO BYTE;
+    i_bAdr	:	BYTE;				// Frame address byte
+    i_bCmd	:	BYTE;				// Frame command byte
+    i_bLen	:	BYTE;				// Number of payload bytes to sum; the buffer must hold at least this many
+    i_pbaTxData	:	POINTER TO BYTE;	// Caller-supplied payload buffer, validated before it is dereferenced
+END_VAR
+VAR_OUTPUT
+    q_xError	:	BOOL;				// TRUE when the buffer pointer is invalid: no checksum was calculated, do not send the frame
 END_VAR
 VAR
-    iIndex	:	INT;
+    iIndex	:	INT;				// Payload byte counter
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -18,10 +63,22 @@ Sum all the bytes within the frame
 Take the LSN ie. nibble of the result and invert it
 *)
 
+q_xError := FALSE;
+
+// Never dereference a caller-supplied pointer that was not validated: report it
+// and leave with q_xError set instead of faulting the task on i_pbaTxData^.
+IF i_pbaTxData = 0 THEN
+    q_xError := TRUE;
+    fSHDLCChecksum := 0;
+    RETURN;
+END_IF
+
 fSHDLCChecksum := i_bAdr + i_bCmd + i_bLen;
 
+// Sum exactly the i_bLen payload bytes (offsets 0 .. i_bLen-1); the exclusive
+// upper bound keeps the last read inside the frame that i_bLen describes.
 IF i_bLen > 0 THEN
-FOR iIndex:=0 TO BYTE_TO_INT(i_bLen)DO
+FOR iIndex:=0 TO BYTE_TO_INT(i_bLen) - 1 DO
     fSHDLCChecksum := fSHDLCChecksum + i_pbaTxData^;
     i_pbaTxData := i_pbaTxData + 1;
 END_FOR
