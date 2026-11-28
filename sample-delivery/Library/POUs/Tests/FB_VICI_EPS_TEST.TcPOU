@@ -35,99 +35,171 @@ TestEnableOverrideExpectOverrideToAutoRestAfterTimerExpires();
 ]]></ST>
     </Implementation>
     <Method Name="TestActivePortBecomesLockedExpectExternalSignalSetTrue" Id="{410125a3-8cc0-4ee9-90f5-443f51d6ea3e}">
-      <Declaration><![CDATA[METHOD TestActivePortBecomesLockedExpectExternalSignalSetTrue :  REFERENCE TO FB_Test
+      <Declaration><![CDATA[METHOD TestActivePortBecomesLockedExpectExternalSignalSetTrue : REFERENCE TO FB_Test
 VAR
-    aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS;
-    fbViciEPS : FB_VICI_EPS_LOGIC;
-    fbEPS : FB_EPS;
+    aEPS : ARRAY[1..4] OF E_VICI_PORT_EPS; // EPS input and port status of the four sample ports.
+    fbViciEPS : FB_VICI_EPS_LOGIC; // Block under test.
+    fbEPS : FB_EPS; // Helper that writes the raw EPS bits of one port.
 
-    bAllPortsLocked : BOOL;
-    bExternalSignal : BOOL;
-    iReqNewPort : INT;
-    iNumPorts :INT := 4;
-    bOverride : BOOL := FALSE;
-END_VAR
-]]></Declaration>
+    bExternalSignal : BOOL; // Captured bExternalLockSignal output.
+    bAllPortsLocked : BOOL; // Captured bAllPortsLocked output.
+    bOverride : BOOL := FALSE; // Manual override handed to the block.
+
+    iReqPort : INT; // Port requested by the operator.
+    iPrevPort : INT; // Port the valve currently sits on.
+    iNewPortPos : INT; // Captured iNewPortPos output.
+    iNumPorts : INT := 4; // Number of sample ports on the valve.
+    iIndex : INT; // Port loop index.
+
+    iTestStep : INT; // Phase of the cycle state machine; 0 builds the fixture.
+    iCycleCount : INT; // Complete block cycles executed in the current phase.
+    iHoldCycles : INT := 3; // Cycles each phase is held and asserted for.
+    bTestFinished : BOOL := FALSE; // Test already reported; stop advancing the fixture.
+END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[TEST('TestActivePortBecomesLockedExpectExternalSignalSetTrue');
+        <ST><![CDATA[(*
+    TestActivePortBecomesLockedExpectExternalSignalSetTrue
+    Purpose:  Verify that FB_VICI_EPS_LOGIC asserts bExternalLockSignal when the
+              port the valve sits on loses its EPS, and that the manual override
+              suppresses that signal again.
+    Usage:    Called once per PLC cycle from the body of FB_VICI_EPS_TEST. The
+              test is a step machine: every step drives the fixture, advances the
+              block under test by exactly one cycle and only then asserts.
+    Objectives:
+              - single-cycle behaviour: each transition is already visible on the
+                first cycle that sees the changed input;
+              - multi-cycle behaviour: the same result is asserted on several
+                consecutive cycles, so a one-cycle pulse or a state that
+                collapses again is caught;
+              - the override phase runs while the override countdown timer is
+                still live.
+    History:  2026-11-28  Rewritten as a cycle-stepped state machine; the block is
+                          no longer called and asserted inside one statement block
+                          (audit finding bae475bb-c393-4458-b174-18ef21c94cbd).
+*)
+TEST('TestActivePortBecomesLockedExpectExternalSignalSetTrue');
 
-fbEPS(eps:=aEPS[1].stEPS);
-fbEPS.setBit(0, TRUE);
+// Test finished and reported: leave the fixture untouched from now on.
+IF bTestFinished THEN
+    RETURN;
+END_IF
 
-fbEPS(eps:=aEPS[2].stEPS);
-fbEPS.setBit(0, TRUE);
+IF iTestStep = 0 THEN
+    // -------------------------------------------------------------------------
+    // Fixture: ports 1..4 all report EPS OK and the valve already sits on the
+    // requested port 1. No block cycle is executed in this cycle.
+    // -------------------------------------------------------------------------
+    iNumPorts := 4;
+    iReqPort := 1;
+    iPrevPort := 1;
+    bOverride := FALSE;
+    bExternalSignal := FALSE;
+    bAllPortsLocked := FALSE;
+    iNewPortPos := 0;
+    iCycleCount := 0;
 
-fbEPS(eps:=aEPS[3].stEPS);
-fbEPS.setBit(0, TRUE);
+    FOR iIndex := 1 TO iNumPorts BY 1 DO
+        fbEPS(eps := aEPS[iIndex].stEPS);
+        fbEPS.setBit(nBits := 0, bValue := TRUE);
+    END_FOR
 
-fbEPS(eps:=aEPS[4].stEPS);
-fbEPS.setBit(0, TRUE);
+    // Keep the manual override alive well past the end of this test so that
+    // phase C is a genuine multi-cycle phase and not a race with the timer.
+    fbViciEPS.M_SET_OVERRIDE_RESET_TIME(tNewTime := T#10s);
 
-fbViciEPS(aPortEPS := aEPS,
-    iReqPort := 1,
-    iPrevPort := iReqNewPort,
-    bOverride := bOverride,
-    iNumPorts := iNumPorts,
-    bExternalLockSignal => bExternalSignal,
-    bAllPortsLocked => bAllPortsLocked,
-    iNewPortPos => iReqNewPort);
+    iTestStep := 1;
 
+ELSE
+    // -------------------------------------------------------------------------
+    // Advance FB_VICI_EPS_LOGIC by exactly one PLC cycle.
+    // -------------------------------------------------------------------------
+    fbViciEPS(aPortEPS := aEPS,
+        iReqPort := iReqPort,
+        iPrevPort := iPrevPort,
+        bOverride := bOverride,
+        iNumPorts := iNumPorts,
+        bExternalLockSignal => bExternalSignal,
+        bAllPortsLocked => bAllPortsLocked,
+        iNewPortPos => iNewPortPos);
 
-AssertEquals_BOOL(
-    Expected:= FALSE ,
-    Actual:= bExternalSignal,
-    Message:= 'bExternalSignal Should be FALSE'
-);
+    iCycleCount := iCycleCount + 1;
 
-fbEPS(eps:=aEPS[1].stEPS);
-fbEPS.setBit(0, FALSE);
+    CASE iTestStep OF
+    1:
+        // Phase A: all ports healthy, port 1 active -> no external lock signal.
+        IF iCycleCount = 1 THEN
+            AssertEquals_BOOL(Expected:= FALSE, Actual:= bExternalSignal,
+                Message:= 'Phase A: bExternalSignal not FALSE after one cycle with the active port unlocked');
+        ELSE
+            AssertEquals_BOOL(Expected:= FALSE, Actual:= bExternalSignal,
+                Message:= 'Phase A: bExternalSignal changed while the active port stayed unlocked');
+        END_IF
 
-fbEPS(eps:=aEPS[2].stEPS);
-fbEPS.setBit(0, TRUE);
+        AssertEquals_BOOL(Expected:= TRUE,
+            Actual:= (aEPS[1].ePortStatus = E_VICI_EPS_PORT_STATUS.ACTIVE),
+            Message:= 'Phase A: PORT 1 is NOT ACTIVE');
 
-fbEPS(eps:=aEPS[3].stEPS);
-fbEPS.setBit(0, TRUE);
+        AssertEquals_BOOL(Expected:= FALSE, Actual:= bAllPortsLocked,
+            Message:= 'Phase A: bAllPortsLocked should be FALSE with no port locked');
 
-fbEPS(eps:=aEPS[4].stEPS);
-fbEPS.setBit(0, TRUE);
+        IF iCycleCount >= iHoldCycles THEN
+            // Phase B input change: port 1 loses its EPS. The block only sees it
+            // in the following cycle, so the assertions above describe a phase
+            // the block really ran, not a same-cycle snapshot.
+            fbEPS(eps := aEPS[1].stEPS);
+            fbEPS.setBit(nBits := 0, bValue := FALSE);
+            iTestStep := 2;
+            iCycleCount := 0;
+        END_IF
 
+    2:
+        // Phase B: the port the valve sits on is locked.
+        IF iCycleCount = 1 THEN
+            AssertEquals_BOOL(Expected:= TRUE, Actual:= bExternalSignal,
+                Message:= 'Phase B: bExternalSignal not TRUE after one cycle with the active port locked');
+        ELSE
+            AssertEquals_BOOL(Expected:= TRUE, Actual:= bExternalSignal,
+                Message:= 'Phase B: bExternalSignal dropped while the active port stayed locked');
+        END_IF
 
-fbViciEPS(aPortEPS := aEPS,
-    iReqPort := 1,
-    iPrevPort := iReqNewPort,
-    bOverride := bOverride,
-    iNumPorts := iNumPorts,
-    bExternalLockSignal => bExternalSignal,
-    bAllPortsLocked => bAllPortsLocked,
-    iNewPortPos => iReqNewPort);
+        AssertEquals_BOOL(Expected:= TRUE,
+            Actual:= (aEPS[1].ePortStatus = E_VICI_EPS_PORT_STATUS.LOCKED),
+            Message:= 'Phase B: PORT 1 is NOT IN LOCKED STATE');
 
+        AssertEquals_INT(Expected:= 1, Actual:= iNewPortPos,
+            Message:= 'Phase B: VICI EPS MOVED TO A LOCKED PORT');
 
-AssertEquals_BOOL(
-    Expected:= TRUE ,
-    Actual:= bExternalSignal,
-    Message:= 'bExternalSignal Should be TRUE'
-);
+        IF iCycleCount >= iHoldCycles THEN
+            // Phase C input change: enable the manual override for the locked
+            // port; the block sees it in the following cycle.
+            bOverride := TRUE;
+            iTestStep := 3;
+            iCycleCount := 0;
+        END_IF
 
-// CHECK OVERRIDE
-bOverride := TRUE;
+    3:
+        // Phase C: override enabled -> lock signal suppressed, port forced ACTIVE.
+        IF iCycleCount = 1 THEN
+            AssertEquals_BOOL(Expected:= FALSE, Actual:= bExternalSignal,
+                Message:= 'Phase C: bExternalSignal not FALSE after one cycle with the override enabled');
+        ELSE
+            AssertEquals_BOOL(Expected:= FALSE, Actual:= bExternalSignal,
+                Message:= 'Phase C: bExternalSignal came back while the override was still enabled');
+        END_IF
 
-fbViciEPS(aPortEPS := aEPS,
-    iReqPort := 1,
-    iPrevPort := iReqNewPort,
-    bOverride := bOverride,
-    iNumPorts := iNumPorts,
-    bExternalLockSignal => bExternalSignal,
-    bAllPortsLocked => bAllPortsLocked,
-    iNewPortPos => iReqNewPort);
+        AssertEquals_BOOL(Expected:= TRUE,
+            Actual:= (aEPS[1].ePortStatus = E_VICI_EPS_PORT_STATUS.ACTIVE),
+            Message:= 'Phase C: OVERRIDE DID NOT FORCE PORT 1 ACTIVE');
 
+        AssertEquals_BOOL(Expected:= TRUE, Actual:= bOverride,
+            Message:= 'Phase C: bOverride was cleared inside the block before the phase completed');
 
-AssertEquals_BOOL(
-    Expected:= FALSE ,
-    Actual:= bExternalSignal,
-    Message:= 'bExternalSignal Should be FALSE'
-);
-
-TEST_FINISHED();]]></ST>
+        IF iCycleCount >= iHoldCycles THEN
+            TEST_FINISHED();
+            bTestFinished := TRUE;
+        END_IF
+    END_CASE
+END_IF]]></ST>
       </Implementation>
     </Method>
     <Method Name="TestAllPortsLockedExpectbAllPortsLockedToBeTrue" Id="{d7534117-3ba8-42eb-8609-ee403d58a03b}">
