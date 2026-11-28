@@ -1,7 +1,47 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
   <POU Name="FB_SolenoidPair" Id="{23ddf2e7-415d-4237-9e6d-fcc92e4bc96b}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_SolenoidPair
+    <Declaration><![CDATA[(*
+    FB_SolenoidPair - driver for a pair of solenoid coils (valve 1 / valve 2).
+
+    PURPOSE
+        Energizes exactly one of two solenoid coils, so that one valve of the
+        pair is open and the other is closed, selected by i_xEpics.
+
+    USAGE
+        Instantiated once per solenoid pair: SolenoidPairA in GVL_SDS of the
+        sample-delivery PLC projects and fbSolenoidPairA in EXAMPLE_DEPLOYMENT.
+        The deployment program links q_xDO1 / q_xDO2 to the two digital-output
+        channels of the EP2338-0001 terminal with a TcLinkTo pragma, and
+        i_xEpics / i_xDebug are published to EPICS as Switch / Debug. The
+        caller invokes the instance once per PLC cycle and never writes
+        q_xDO1 / q_xDO2 itself: both coils stay published to EPICS through
+        the pytmc pragmas, but a value written from EPICS is superseded by
+        this block on the next scan (in debug mode by CLOSE).
+
+    OBJECTIVES
+        - Exactly one coil energized while the block actively commands the
+          pair (i_xDebug FALSE), so the two valves can never both be open.
+        - Both coils driven to the de-energized (CLOSE) state on the first
+          scan and whenever the block is not commanding the pair (debug
+          mode), so a solenoid can never be held open for an unbounded time
+          by a stale output value (convention conv_65aba2c165c0).
+        - Own the coils in a single block, so call sites only link I/O and
+          the fail-safe behaviour is stated in one place.
+
+    HISTORY
+        2023-05-19 J. Zamudio - block added with the initial commit (746deac).
+        2025-05-29 J. Zamudio - moved to Library/POUs/DigitalOutput in the
+            project restructure (9b2fb2c), logic unchanged.
+        2025-06-25 J. Zamudio - ZNAM field added to the coil pytmc pragmas
+            (3c5d70e).
+        2026-11-28 Scirix Agent - fail-safe coil handling: both coils are now
+            driven closed on the first scan and while the block is not
+            commanding the pair, instead of being left at their previous
+            value in debug mode (audit finding #485, task #452, convention
+            conv_65aba2c165c0). Behaviour change when i_xDebug is TRUE.
+*)
+FUNCTION_BLOCK FB_SolenoidPair
 VAR_INPUT
 END_VAR
 VAR_OUTPUT
@@ -15,33 +55,52 @@ VAR
         field: ZNAM "CLOSE"
         field: ONAM "OPEN"
      '}
-    q_xDO1 AT %Q*	:	BOOL;
+    q_xDO1 AT %Q*	:	BOOL;	// Coil 1 of the pair: TRUE energizes and opens valve 1; FALSE is the de-energized (CLOSE) state.
     {attribute 'pytmc' := '
         pv: Valve:02:Open
         io: io
         field: ZNAM "CLOSE"
         field: ONAM "OPEN"
      '}
-    q_xDO2 AT %Q*	:	BOOL;
+    q_xDO2 AT %Q*	:	BOOL;	// Coil 2 of the pair: TRUE energizes and opens valve 2; FALSE is the de-energized (CLOSE) state.
 
     {attribute 'pytmc' := '
         pv: Switch
         io: o
      '}
-    i_xEpics AT %I* : BOOL; // open A when False, open B when True
+    i_xEpics AT %I* : BOOL; // Switch from EPICS: FALSE commands valve 1 open (q_xDO1), TRUE commands valve 2 open (q_xDO2).
 
     {attribute 'pytmc' := '
         pv: Debug
         io: o
      '}
-    i_xDebug AT %I* : BOOL; // if True, do not set valves according to i_xEpics
+    i_xDebug AT %I* : BOOL; // TRUE = debug: the block does not command the pair, so both coils are driven to the de-energized (CLOSE) state.
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[(* If debug, set independently. Else, only open one valve according to i_xEpics *)
-IF NOT i_xDebug THEN
+      <ST><![CDATA[(*
+    Fail-safe coil handling: a coil is energized only while this block is
+    actively commanding the pair.
+
+    - g_xFirstPass is TRUE on the first scan after a download or power cycle
+      (the deployment program clears it at the end of the first cycle), so
+      both coils start de-energized instead of inheriting a retained value.
+    - In debug mode the block is not commanding the pair, so both coils are
+      driven closed rather than holding their previous value indefinitely.
+    - Otherwise exactly one coil is energized, selected by i_xEpics.
+*)
+IF g_xFirstPass THEN
+    (* First scan: no command yet, so both solenoids stay de-energized (CLOSE) *)
+    q_xDO1 := FALSE;
+    q_xDO2 := FALSE;
+ELSIF NOT i_xDebug THEN
+    (* Normal operation: open exactly one valve according to i_xEpics *)
     q_xDO1 := NOT i_xEpics;
     q_xDO2 := i_xEpics;
+ELSE
+    (* Debug: not commanding the pair, so drive both coils to CLOSE *)
+    q_xDO1 := FALSE;
+    q_xDO2 := FALSE;
 END_IF]]></ST>
     </Implementation>
   </POU>
