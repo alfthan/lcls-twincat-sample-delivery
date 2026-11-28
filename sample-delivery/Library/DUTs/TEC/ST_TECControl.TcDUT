@@ -3,11 +3,40 @@
   <DUT Name="ST_TECControl" Id="{754f1107-f4e8-4f0f-9bfc-f24d03105031}">
     <Declaration><![CDATA[TYPE ST_TECControl :
 STRUCT
+    (*
+        Purpose : Command image for one TEC channel of the sample-delivery
+                  serial chain, handed to FB_TECDriver as i_stControl.
+        Usage   : The caller fills in all three members before the first
+                  execute. On each execute FB_TECDriver reads the driver back
+                  (query 03 for the setpoint, query 46 for the output state)
+                  and writes a member only when it differs from the read-back
+                  value, so a member left at its start value is commanded to
+                  the driver as well. The struct has neither start values nor
+                  any range checking: the caller must supply the address of
+                  the unit it really wired up and a setpoint inside the
+                  process limits.
+        Units   : diTempSetpoint carries [degC] in the TC-36-25 driver's own
+                  fixed-point temperature encoding - the same encoding
+                  ST_TECStatus.diSetPoint is read back in - and is neither
+                  rescaled nor rounded by FB_TECDriver, so it is NOT tenths
+                  of a degree. sAddress carries the address digits only.
+                  xOutputOn is a level (TRUE = output energized), not units.
+        History : 2026-11-28 Scirix Agent - added this header and the per
+                  member meaning, units and polarity (audit finding 447);
+                  no declaration changed.
+    *)
 
-sAddress	:	STRING(2);
-diTempSetpoint	:	DINT;
-xOutputOn	:	BOOL;
-
+sAddress	:	STRING(2);	// Address of this TC-36-25 driver on the shared RS-485 bus: two hexadecimal
+        // digits, 00 through FF, with no prefix and no terminator; FB_TECTransaction concatenates it
+        // verbatim in front of the two digit command of every request frame, so it must match the address
+        // programmed into that unit - nothing in the driver block validates or defaults it
+diTempSetpoint	:	DINT;	// Temperature setpoint commanded to the driver with command 1c, in [degC] in the
+        // TC-36-25 native fixed-point encoding - the same encoding ST_TECStatus.diSetPoint is read back in,
+        // so the two are directly comparable and it is NOT tenths of a degree; FB_TECDriver writes it only
+        // when it differs from the read-back value and does not clamp it, so the caller owns the limits
+xOutputOn	:	BOOL;	// Output stage request sent to the driver with command 2d, TRUE = TEC output energized
+        // (driver output enabled), FALSE = output off; sent as 1/0, written only when it differs from the
+        // state read back into ST_TECStatus.xOutputOn
 
 END_STRUCT
 END_TYPE
