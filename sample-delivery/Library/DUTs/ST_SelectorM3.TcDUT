@@ -31,7 +31,7 @@ STRUCT
     iVici2ReqPos : INT;   // requested position for Vici 2
 
     //Hardware control
-    astViciVlvCtrl	: ARRAY[1..2] OF	ST_ViciControl;
+    astViciVlvCtrl	: ARRAY[1..2] OF	ST_ViciControl; // Vici valve control, index 1..2 = Vici 1..2; positions are port numbers 1..12 (unitless)
 
     (* Selector EPICS Readbacks *)
     {attribute 'pytmc' := '
@@ -48,13 +48,13 @@ STRUCT
         pv: ValveSyncCurrentPos
         io: i
      '}
-    iSyncResPos : INT;
+    iSyncResPos : INT; // port number 1..12 shared by both valves; valid while xResSyncd (unitless)
 
     //Hardware readbacks
     {attribute 'pytmc' := '
         pv: Valve
      '}
-    astViciVlvStatus	:	ARRAY[1..2] OF	ST_ViciStatus;
+    astViciVlvStatus	:	ARRAY[1..2] OF	ST_ViciStatus; // Vici valve readbacks, index 1..2 = Vici 1..2; iCurrPos is a port number 1..12 (unitless)
 
 
     // M3 flow rates
@@ -74,7 +74,7 @@ STRUCT
         pv: SampleNames
         io: io
     '}
-    stSampleNames	:	ST_Strings;
+    stSampleNames	:	ST_Strings; // up to 12 sample names, s1..s12 (free text, no units)
 
 END_STRUCT
 END_TYPE
