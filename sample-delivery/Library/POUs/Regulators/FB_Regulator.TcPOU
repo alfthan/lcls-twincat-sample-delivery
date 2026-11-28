@@ -45,6 +45,15 @@ END_VAR
       <ST><![CDATA[(* Regulator Function Block *)
 (* Alex Wallace, 2014-10-16 *)
 (* Modified in 2.5.3 to remove all pressure SP  based code *)
+(* Modified 2026-11-28: validate the iq_stRegulator VAR_IN_OUT reference before use *)
+
+(* Checking the VAR_IN_OUT reference, leave the block in case of an invalid reference
+   and report a controlled error instead of dereferencing an invalid reference *)
+IF NOT __ISVALIDREF(iq_stRegulator) THEN
+    q_xError := TRUE;
+    iStep := 9000;
+    RETURN;
+END_IF
 
 rtEnable(CLK:=iq_stRegulator.xRegEnab);
 
