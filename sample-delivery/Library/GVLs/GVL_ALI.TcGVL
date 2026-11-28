@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="GVL_ALI" Id="{8c30ab09-7c3b-431f-a8fd-af8b2ea6bc66}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+(*
+    Global Constants for the ALI (Advanced Light Injector) device blocks
+
+    These limits are hardware dependent: they are declared here, once, so that a
+    given machine can be tuned without editing control logic. Every function block
+    that needs one of them refers to the constant instead of a literal.
+
+    History:
+    2026-11-28: created to replace the hard-coded result cap and travel limits in
+    FB_ManipAxis (audit finding #1166).
+*)
+VAR_GLOBAL CONSTANT
+    // Capacity of the q_asResult diagnostic log array used by the ALI device blocks
+    MAX_RESULT_COUNT : INT := 20;
+
+    // Lowest commanded manipulator axis position that may be sent to the hardware (mm)
+    MIN_MANIP_AXIS_POSITION : LREAL := -100;
+
+    // Highest commanded manipulator axis position that may be sent to the hardware (mm)
+    MAX_MANIP_AXIS_POSITION : LREAL := 100;
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

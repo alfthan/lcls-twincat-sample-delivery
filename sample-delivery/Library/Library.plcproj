@@ -168,6 +168,9 @@
     <Compile Include="DUTs\Vici\ST_ViciStatus.TcDUT">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="GVLs\GVL_ALI.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="GVLs\GVL_SAMPLE.TcGVL">
       <SubType>Code</SubType>
     </Compile>
