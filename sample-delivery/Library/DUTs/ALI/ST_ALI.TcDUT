@@ -6,22 +6,19 @@ STRUCT
     (* Aerodynamic Lens Injector *)
 
     (* Manipulator *)
-    axisX	:	ST_ManipAxis;
-    axisY	:	ST_ManipAxis;
-    axisZ	:	ST_ManipAxis;
+    axisX	:	ST_ManipAxis; // X translation axis of the manipulator; position in mm (+/-100 mm travel), speed in mm/s
+    axisY	:	ST_ManipAxis; // Y translation axis of the manipulator; position in mm (+/-100 mm travel), speed in mm/s
+    axisZ	:	ST_ManipAxis; // Z translation axis of the manipulator; position in mm (+/-100 mm travel), speed in mm/s
 
     (* Vacuum gauges *)
-    //925
-    stNozzleBoxVG	: ST_VG;
-    //925
-    stSkimmerVG	: ST_VG;
-    //722
-    stRelaxVG	: ST_VG := (rFULL_SCALE:=10);
+    stNozzleBoxVG	: ST_VG; // Nozzle-box gauge: MKS 925 via FB_9XX (log scale); pressure in Torr
+    stSkimmerVG	: ST_VG; // Skimmer gauge: MKS 925 via FB_9XX (log scale); pressure in Torr; source of the valve pressure readback
+    stRelaxVG	: ST_VG := (rFULL_SCALE:=10); // Relaxation-chamber gauge: MKS 722 Baratron via FB_GCM (linear); full scale 10 Torr, pressure in Torr
 
     (* Butterfly valve pressure controller *)
-    stPropVlv	:	ST_PropValveMKS253;
+    stPropVlv	:	ST_PropValveMKS253; // MKS 253 butterfly throttle valve + stepper: opening 0-100 %, speed in deg/s, pressure in Torr
 
-    (* PropValve Pressure Controller *)
+    (* Unused: FB_ALI drives the valve through stPropVlv instead *)
     //stPressCtrl	:	ST_PressureController;
 
 
