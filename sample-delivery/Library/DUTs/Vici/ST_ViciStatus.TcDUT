@@ -1,17 +1,30 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.2">
   <DUT Name="ST_ViciStatus" Id="{3cbe973d-3413-4383-8a07-6d21d8bf92fd}">
-    <Declaration><![CDATA[TYPE ST_ViciStatus :
+    <Declaration><![CDATA[TYPE ST_ViciStatus :	(* Status returned by FB_ViciDriver for one Vici port selector valve.
+
+    Usage:  FB_ViciDriver writes this structure on every poll ('CP' readback) and on
+            every move ('GO' command) of the valve; consumers copy it out of the driver's
+            q_stStatus output (e.g. into ST_SelectorM3.astViciVlvStatus). It is a status
+            only - the driver overwrites it each time it runs, so it must not be used as
+            a command input.
+
+    Units:  Positions are 1-based port numbers of the valve's port face, expressed in PLC
+            (mirrored) orientation, i.e. 1 .. iPortCount (ST_ViciControl.iPortCount, 12
+            for the standard Vici valve). They are dimensionless discrete actuator
+            positions, not engineering units, and are only meaningful while xPosValid
+            is TRUE.
+*)
 STRUCT
-    sViciReq			: STRING;
-    sViciReply		:STRING;
+    sViciReq			: STRING;	// reserved debug field for the raw request string; not populated by FB_ViciDriver (see its q_sLastSentString)
+    sViciReply		:STRING;	// raw reply last received from the valve, e.g. '1CP05' = address 1, 'CP' echo, port 05; cleared on error
     {attribute 'pytmc' := '
         pv: CurrentPos
         io: i
      '}
-    iCurrPos				: INT;
-    iReqPos		:	INT;
-    xPosValid	:	BOOL;
+    iCurrPos				: INT;	// current port number, 1..iPortCount in PLC (mirrored) orientation, decoded from the 'CP' reply; dimensionless, stale unless xPosValid is TRUE
+    iReqPos		:	INT;	// port number, 1..iPortCount in PLC (mirrored) orientation, last successfully commanded with 'GO'; 0 = no move completed since power-up
+    xPosValid	:	BOOL;	// TRUE when the last 'CP' readback was received and parsed into iCurrPos; FALSE on comm error, unexpected reply, or before the first successful read
     (*iAddress				:INT;*)
     (* Do not use this address. If you do, the driver
     will overwrite this address with zero each time
