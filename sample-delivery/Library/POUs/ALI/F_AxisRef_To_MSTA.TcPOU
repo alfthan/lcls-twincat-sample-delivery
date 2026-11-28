@@ -1,12 +1,53 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4020.12">
   <POU Name="F_AxisRef_To_MSTA" Id="{6037187c-3053-436d-ba08-ac7db25710cf}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION F_AxisRef_To_MSTA	: UINT
+    <Declaration><![CDATA[(* F_AxisRef_To_MSTA - axis status to EPICS pseudo-MSTA word
+
+Purpose:
+    Translate one manipulator axis (ST_ManipAxis, owned and updated by
+    FB_ManipAxis) into the UINT status word that is exposed to EPICS as the
+    axis MSTA. Only the MSTA bits this project actually reports are assigned;
+    the remaining bits carry no meaning.
+
+Usage:
+    Call once per PLC cycle, after the matching FB_ManipAxis instance has run:
+        F_AxisRef_To_MSTA(stManipAxis := iq_Injector.axisX,
+                          MSTA         => iq_Injector.axisX.uiMsta);
+    The function is stateless and does not modify stManipAxis, so it can be
+    called for as many axes as needed, in any order.
+
+Objectives:
+    - Keep the ST_ManipAxis to MSTA bit mapping in exactly one place instead of
+      repeating bit twiddling in every consumer of the axis status.
+    - Make the bit contract of MSTA readable from this POU interface alone, so
+      consumers do not have to reverse-engineer the meaning of the word.
+
+MSTA bit layout (dimensionless bit field, no engineering units):
+    bit 0    axis enabled   TRUE while the axis is powered/enabled
+                           (stManipAxis.xEnabled)
+    bit 1    axis error     TRUE while the axis reports an error
+                           (stManipAxis.stAxis.Status.Error)
+    bits 2-15              not assigned by this function; do not rely on them
+    Test the individual bits (MSTA.0 enabled, MSTA.1 error) rather than the
+    whole word.
+
+History:
+    17/8/17    - A. Wallace - Created: translates the axis ref status to an
+                               EPICS pseudo MSTA value.
+    2026-11-28 - Documentation only: added this POU header and the
+                 declaration comments (bit mapping unchanged).
+*)
+FUNCTION F_AxisRef_To_MSTA	: UINT
 VAR_INPUT
-    stManipAxis	:	ST_ManipAxis;
+    stManipAxis	:	ST_ManipAxis; (* Axis status/control struct to translate, as owned
+                                     by FB_ManipAxis. Supplies bit 0 of MSTA via
+                                     xEnabled and bit 1 via stAxis.Status.Error; read
+                                     only, never modified by this function. *)
 END_VAR
 VAR_OUTPUT
-    MSTA	:	UINT;
+    MSTA	:	UINT; (* EPICS pseudo MSTA status word of the axis, a dimensionless
+                       bit field: bit 0 = axis enabled, bit 1 = axis error, all
+                       other bits unused. *)
 END_VAR
 VAR
 END_VAR
